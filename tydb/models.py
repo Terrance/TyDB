@@ -1,8 +1,11 @@
 from abc import ABC
-from typing import Any, Generic, Optional, Type, TypeVar, Union, overload
+from typing import Any, Generic, Iterator, Optional, Tuple, Type, TypeVar, Union, overload
+from typing_extensions import Self
 
 import pypika
-from typing_extensions import Self
+from pypika.queries import QueryBuilder
+
+from .api import Cursor
 
 
 _TTable = TypeVar("_TTable", bound="Table")
@@ -19,6 +22,45 @@ class Default:
 DEFAULT = Default()
 
 
+class Query(Generic[_TTable]):
+
+    def __init__(self, table: Type[_TTable], query: QueryBuilder):
+        self.table = table
+        self.pk_query = query
+
+    def execute(self, cursor: Cursor) -> Iterator[Tuple[Any, ...]]:
+        cursor.execute(str(self.pk_query))
+        while True:
+            result = cursor.fetchone()
+            if not result:
+                break
+            yield result
+
+
+class SelectQuery(Query[_TTable]):
+
+    @classmethod
+    def new(cls, table: Type[_TTable], where: Optional[pypika.Criterion] = None):
+        pk_query: QueryBuilder = pypika.Query.from_(table.meta.pk_table).select(*table.meta.fields)
+        if where:
+            pk_query = pk_query.where(where)
+        return SelectQuery(table, pk_query)
+
+    def one(self) -> "SelectOneQuery[_TTable]":
+        return SelectOneQuery(self.table, self.pk_query)
+
+    def execute(self, cursor: Cursor) -> Iterator[_TTable]:
+        for result in super().execute(cursor):
+            data = dict(zip(self.table.meta.fields, result))
+            yield self.table(data)
+
+
+class SelectOneQuery(SelectQuery[_TTable]):
+
+    def execute(self, cursor: Cursor) -> Optional[_TTable]:
+        return next(super().execute(cursor), None)
+
+
 class TableMeta(Generic[_TTable]):
 
     def __init__(self: Self, table: Type[_TTable]):
@@ -29,6 +71,9 @@ class TableMeta(Generic[_TTable]):
     @property
     def fields(self):
         return {name: value for name, value in vars(self.table).items() if isinstance(value, Field)}
+
+    def select(self, where: Optional[pypika.Criterion] = None) -> SelectQuery[_TTable]:
+        return SelectQuery.new(self.table, where)
 
 
 class Table:

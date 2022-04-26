@@ -1,0 +1,6 @@
+from typing import Any, Optional, Protocol, Tuple
+
+
+class Cursor(Protocol):
+    def execute(self, operation: Any, parameters: Any = ...) -> Any: ...
+    def fetchone(self) -> Optional[Tuple[Any, ...]]: ...
