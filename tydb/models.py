@@ -1,5 +1,7 @@
 from abc import ABC
-from typing import Any, Generic, Iterator, Optional, Tuple, Type, TypeVar, Union, overload
+from typing import (
+    Any, Dict, Generic, Iterable, Iterator, Optional, Tuple, Type, TypeVar, Union, overload,
+)
 from typing_extensions import Self
 
 import pypika
@@ -22,13 +24,12 @@ class Default:
 DEFAULT = Default()
 
 
-class Query(Generic[_TTable]):
+class Query:
 
-    def __init__(self, table: Type[_TTable], query: QueryBuilder):
-        self.table = table
+    def __init__(self, query: QueryBuilder):
         self.pk_query = query
 
-    def execute(self, cursor: Cursor) -> Iterator[Tuple[Any, ...]]:
+    def execute(self, cursor: Cursor) -> Iterable[Tuple[Any, ...]]:
         cursor.execute(str(self.pk_query))
         while True:
             result = cursor.fetchone()
@@ -37,14 +38,25 @@ class Query(Generic[_TTable]):
             yield result
 
 
-class SelectQuery(Query[_TTable]):
+class _TableQuery(Query, Generic[_TTable]):
+
+    def __init__(self, table: Type[_TTable], query: QueryBuilder):
+        super().__init__(query)
+        self.table = table
+
+
+class SelectQuery(_TableQuery[_TTable]):
 
     @classmethod
     def new(cls, table: Type[_TTable], where: Optional[pypika.Criterion] = None):
-        pk_query: QueryBuilder = pypika.Query.from_(table.meta.pk_table).select(*table.meta.fields)
+        pk_query: QueryBuilder = (
+            pypika.Query
+            .from_(table.meta.pk_table)
+            .select(*table.meta.fields)
+        )
         if where:
             pk_query = pk_query.where(where)
-        return SelectQuery(table, pk_query)
+        return cls(table, pk_query)
 
     def one(self) -> "SelectOneQuery[_TTable]":
         return SelectOneQuery(self.table, self.pk_query)
@@ -52,7 +64,7 @@ class SelectQuery(Query[_TTable]):
     def execute(self, cursor: Cursor) -> Iterator[_TTable]:
         for result in super().execute(cursor):
             data = dict(zip(self.table.meta.fields, result))
-            yield self.table(data)
+            yield self.table(**data)
 
 
 class SelectOneQuery(SelectQuery[_TTable]):
@@ -69,7 +81,7 @@ class TableMeta(Generic[_TTable]):
         self.pk_table = pypika.Table(self.name)
 
     @property
-    def fields(self):
+    def fields(self) -> Dict[str, "Field[Any]"]:
         return {name: value for name, value in vars(self.table).items() if isinstance(value, Field)}
 
     def select(self, where: Optional[pypika.Criterion] = None) -> SelectQuery[_TTable]:
@@ -83,15 +95,20 @@ class Table:
     def __init_subclass__(cls: Type[Self]):
         cls.meta = TableMeta(cls)
 
-    def __init__(self: Self, data):
-        self.__dict__.update(data)
+    def __init__(self: Self, **data: Any):
+        for name, field in self.meta.fields.items():
+            self.__dict__[name] = field.decode(data[name])
+
+    def __repr__(self):
+        kwargs = ("{}={}".format(key, value) for key, value in self.__dict__.items())
+        return "{}({})".format(self.__class__.__name__, ", ".join(kwargs))
 
 
 class Field(ABC, Generic[_TCls]):
 
     data_type: Type[_TCls]
 
-    table: Table
+    table: Type[Table]
     name: str
 
     def __init__(self, default: Union[_TCls, Default] = DEFAULT):
@@ -101,10 +118,10 @@ class Field(ABC, Generic[_TCls]):
     def _pk_field(self) -> pypika.Field:
         return getattr(self.table.meta.pk_table, self.name)
 
-    def __set_name__(self, table: Table, name: str):
+    def __set_name__(self, owner: Type[Table], name: str):
         if hasattr(self, "table"):
             raise RuntimeError("Field can't be assigned twice")
-        self.table = table
+        self.table = owner
         self.name = name
 
     @overload
@@ -117,14 +134,17 @@ class Field(ABC, Generic[_TCls]):
             return self
         return obj.__dict__[self.name]
 
-    def __set__(self, obj: Table, value: _TCls):
-        obj.__dict__[self.name] = value
-
     def __pos__(self) -> pypika.Criterion:
         return self._pk_field
 
-    def decode(self, value: str) -> _TCls:
+    def __repr__(self):
+        return "<{}: {}.{}>".format(self.__class__.__name__, self.table.__name__, self.name)
+
+    def decode(self, value: Any) -> _TCls:
         return self.data_type(value)
 
-    def encode(self, value: _TCls) -> str:
-        return str(value)
+    def encode(self, value: _TCls) -> Any:
+        if self.data_type in (int, float, bool):
+            return self.data_type(value)
+        else:
+            return str(value)
