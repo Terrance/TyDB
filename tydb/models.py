@@ -12,6 +12,7 @@ from .api import Cursor
 
 _TAny = TypeVar("_TAny")
 _TTable = TypeVar("_TTable", bound="Table")
+_TTable2 = TypeVar("_TTable2", bound="Table")
 
 
 def snake_case(value: str):
@@ -75,9 +76,9 @@ class SelectQuery(_TableQuery[_TTable]):
         return cls(table, pk_query)
 
     def one(self) -> "SelectOneQuery[_TTable]":
-        return SelectOneQuery(self.table, self.pk_query)
+        return SelectOneQuery(self.table, self.pk_query.limit(1))
 
-    def _unpack(self, table: _TTable, result: Tuple[Any, ...]) -> Tuple[_TTable, int]:
+    def _unpack(self, table: Type[_TTable2], result: Tuple[Any, ...]) -> Tuple[_TTable2, int]:
         fields = table.meta.fields
         size = len(fields)
         row = result[:size]
@@ -103,6 +104,11 @@ class SelectQuery(_TableQuery[_TTable]):
 
 
 class SelectOneQuery(SelectQuery[_TTable]):
+
+    @classmethod
+    def new(cls, table: Type[_TTable], where: Optional[pypika.Criterion] = None):
+        select = super().new(table, where)
+        return cls(table, select.pk_query.limit(1))
 
     def execute(self, cursor: Cursor) -> Optional[_TTable]:
         return next(super().execute(cursor), None)
