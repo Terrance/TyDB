@@ -204,9 +204,13 @@ class Field(_Descriptor[Table], Generic[_TAny]):
 
 class Reference(_Descriptor[Table], Generic[_TTable]):
 
-    def __init__(self, field: Field[Any], table: Type[_TTable]):
+    def __init__(self, field: Field[Any], table: Type[_TTable], backref: Optional[str] = None):
         self.field = field
         self.table = table
+        if backref:
+            coll = Collection(self)
+            setattr(table, backref, coll)
+            coll.__set_name__(table, backref)
 
     @overload
     def __get__(self, obj: Table, objtype: Any = ...) -> _TTable: ...
@@ -221,4 +225,43 @@ class Reference(_Descriptor[Table], Generic[_TTable]):
     def __repr__(self):
         return "<{}: {}.{} ({})>".format(
             self.__class__.__name__, self.owner.__name__, self.name, self.table.__name__,
+        )
+
+
+class Collection(Generic[_TTable], _Descriptor[Table]):
+
+    def __init__(self, ref: Reference):
+        self.ref = ref
+
+    @overload
+    def __get__(self, obj: Table, objtype: Any = ...) -> "BoundCollection[_TTable]": ...
+    @overload
+    def __get__(self, obj: None, objtype: Any = ...) -> "Collection[_TTable]": ...
+
+    def __get__(self, obj: Optional[Table], objtype: Optional[Type[Table]] = None):
+        if not obj:
+            return self
+        return BoundCollection(self, obj)
+
+    def __repr__(self):
+        return "<{}: {}.{} ({})>".format(
+            self.__class__.__name__, self.owner.__name__, self.name, self.ref.owner.__name__,
+        )
+
+
+class BoundCollection(Generic[_TTable]):
+
+    def __init__(self, coll: Collection, inst: Table):
+        self.coll = coll
+        self.inst = inst
+
+    def select(self, where: Optional[pypika.Criterion] = None) -> SelectQuery[_TTable]:
+        local = +self.coll.ref.field == getattr(self.inst, self.coll.ref.field.foreign.name)
+        where = where & local if where else local
+        return SelectQuery.new(self.coll.ref.owner, where)
+
+    def __repr__(self):
+        return "<{}: {}.{} ({}) on {!r}>".format(
+            self.__class__.__name__, self.coll.owner.__name__, self.coll.name,
+            self.coll.ref.owner.__name__, self.inst,
         )
