@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Generator, Generic, Optional, Tuple, Type, TypeVar
 
 import pypika
@@ -11,6 +12,9 @@ _TTable = TypeVar("_TTable", bound=Table)
 _TTableAlt = TypeVar("_TTableAlt", bound=Table)
 
 
+LOG = logging.getLogger(__name__)
+
+
 class Query:
 
     pk_query: QueryBuilder
@@ -19,6 +23,7 @@ class Query:
         self.cursor = cursor
 
     def execute(self) -> Generator[Tuple[Any, ...], None, None]:
+        LOG.debug(self.pk_query)
         self.cursor.execute(str(self.pk_query))
         while True:
             result = self.cursor.fetchone()
@@ -82,6 +87,9 @@ class SelectQuery(_TableQuery[_TTable]):
 
 
 class SelectOneQuery(SelectQuery[_TTable]):
+
+    def _pk_query(self):
+        return super()._pk_query().limit(1)
 
     def execute(self) -> Optional[_TTable]:
         return next(super().execute(), None)
