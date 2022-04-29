@@ -1,11 +1,11 @@
 import logging
-from typing import Any, Generator, Generic, Optional, Tuple, Type, TypeVar
+from typing import Any, Generator, Generic, Optional, Tuple, Type, TypeVar, Union
 
 import pypika
 from pypika.queries import QueryBuilder
 
 from .api import Connection, Cursor
-from .models import _RefSpec, Table
+from .models import _RefSpec, BoundCollection, BoundReference, Table
 
 
 _TTable = TypeVar("_TTable", bound=Table)
@@ -101,9 +101,13 @@ class Session:
         self.conn = conn
 
     def select(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec,
-        auto_join: bool = False
+        self, table: Union[Type[_TTable], BoundCollection[_TTable]],
+        where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Generator[_TTable, None, None]:
+        if isinstance(table, BoundCollection):
+            bind, table = table, table.coll.ref.owner
+            relate = +bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
+            where = relate & where if where else relate
         cur = self.conn.cursor()
         if auto_join:
             joins = tuple(table.meta.walk_refs())
@@ -118,4 +122,14 @@ class Session:
         if auto_join:
             joins = tuple(table.meta.walk_refs())
         query = SelectOneQuery(cur, table, where, *joins)
+        return query.execute()
+
+    def load(
+        self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False,
+    ) -> Optional[_TTable]:
+        cur = self.conn.cursor()
+        where = +bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
+        if auto_join:
+            joins = tuple(bind.ref.table.meta.walk_refs())
+        query = SelectOneQuery(cur, bind.ref.table, where, *joins)
         return query.execute()

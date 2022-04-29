@@ -154,11 +154,27 @@ class Reference(_Descriptor[Table], Generic[_TTable]):
     def __get__(self, obj: Optional[Table], objtype: Optional[Type[Table]] = None):
         if not obj:
             return self
-        return obj.__dict__[self.name]
+        try:
+            return obj.__dict__[self.name]
+        except KeyError:
+            return BoundReference(self, obj)
 
     def __repr__(self):
         return "<{}: {}.{} ({})>".format(
             self.__class__.__name__, self.owner.__name__, self.name, self.table.__name__,
+        )
+
+
+class BoundReference(Generic[_TTable]):
+
+    def __init__(self, ref: Reference[Table], inst: Table):
+        self.ref = ref
+        self.inst = inst
+
+    def __repr__(self):
+        return "<{}: {}.{} ({}) on {!r}>".format(
+            self.__class__.__name__, self.ref.owner.__name__, self.ref.name,
+            self.ref.owner.__name__, self.inst,
         )
 
 
@@ -188,11 +204,6 @@ class BoundCollection(Generic[_TTable]):
     def __init__(self, coll: Collection, inst: Table):
         self.coll = coll
         self.inst = inst
-
-    def select(self, where: Optional[pypika.Criterion] = None) -> SelectQuery[_TTable]:
-        local = +self.coll.ref.field == getattr(self.inst, self.coll.ref.field.foreign.name)
-        where = where & local if where else local
-        return SelectQuery.new(self.coll.ref.owner, where)
 
     def __repr__(self):
         return "<{}: {}.{} ({}) on {!r}>".format(
