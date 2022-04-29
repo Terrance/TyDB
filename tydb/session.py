@@ -1,11 +1,11 @@
 import logging
-from typing import Any, Generator, Generic, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Generator, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union
 
 import pypika
 from pypika.queries import QueryBuilder
 
 from .api import Connection, Cursor
-from .models import _RefSpec, BoundCollection, BoundReference, Table
+from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 
 
 _TTable = TypeVar("_TTable", bound=Table)
@@ -95,6 +95,31 @@ class SelectOneQuery(SelectQuery[_TTable]):
         return next(super().execute(), None)
 
 
+class InsertQuery(_TableQuery[_TTable]):
+
+    def __init__(
+        self, cursor: Cursor, table: Type[_TTable], *rows: Iterable[Any],
+        fields: Optional[Iterable["Field"]] = None,
+    ):
+        super().__init__(cursor, table)
+        self.rows = rows
+        self.fields = fields or table.meta.fields.values()
+        self.pk_query = self._pk_query()
+
+    def _pk_query(self):
+        cols = (field.name for field in self.fields)
+        return (
+            pypika.Query
+            .into(self.table.meta.pk_table)
+            .columns(*cols)
+            .insert(*self.rows)
+        )
+
+    def execute(self) -> Optional[int]:
+        list(super().execute())
+        return self.cursor.lastrowid if self.cursor.lastrowid not in (None, -1) else None
+
+
 class Session:
 
     def __init__(self, conn: Connection):
@@ -108,9 +133,9 @@ class Session:
             bind, table = table, table.coll.ref.owner
             relate = +bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
             where = relate & where if where else relate
-        cur = self.conn.cursor()
         if auto_join:
             joins = tuple(table.meta.walk_refs())
+        cur = self.conn.cursor()
         query = SelectQuery(cur, table, where, *joins)
         return query.execute()
 
@@ -118,18 +143,36 @@ class Session:
         self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec,
         auto_join: bool = False
     ) -> Optional[_TTable]:
-        cur = self.conn.cursor()
         if auto_join:
             joins = tuple(table.meta.walk_refs())
+        cur = self.conn.cursor()
         query = SelectOneQuery(cur, table, where, *joins)
         return query.execute()
 
     def load(
         self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
-        cur = self.conn.cursor()
         where = +bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
         if auto_join:
             joins = tuple(bind.ref.table.meta.walk_refs())
+        cur = self.conn.cursor()
         query = SelectOneQuery(cur, bind.ref.table, where, *joins)
         return query.execute()
+
+    def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+        fields: List[Field] = []
+        row = []
+        for name, field in table.meta.fields.items():
+            try:
+                value = data[name]
+            except KeyError:
+                if field.default is Default.NONE:
+                    raise
+                value = field.default
+            row.append(value)
+            fields.append(field)
+        cur = self.conn.cursor()
+        query = InsertQuery(cur, table, row, fields=fields)
+        primary = query.execute()
+        if primary is not None and table.meta.primary:
+            return self.get(table, +table.meta.primary == primary)
