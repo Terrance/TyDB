@@ -1,4 +1,5 @@
 from abc import ABC
+from enum import Enum, auto
 from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload
 from typing_extensions import Self
 
@@ -16,18 +17,17 @@ def snake_case(value: str):
     return "".join("_" + char.lower() if char.isupper() else char for char in value).lstrip("_")
 
 
-class Default:
-    pass
-
-DEFAULT = Default()
+class Default(Enum):
+    NONE = auto()
 
 
 class TableMeta(Generic[_TTable]):
 
-    def __init__(self: Self, table: Type[_TTable]):
+    def __init__(self: Self, table: Type[_TTable], primary: Optional[str] = None):
         self.table = table
         self.name = snake_case(table.__name__)
         self.pk_table = pypika.Table(self.name)
+        self.primary = self.fields[primary] if primary else None
 
     def _filter(self, cls: Type[_TAny]) -> Dict[str, _TAny]:
         return {name: value for name, value in vars(self.table).items() if isinstance(value, cls)}
@@ -86,8 +86,8 @@ class Table(ABC):
 
     meta: TableMeta[Self]
 
-    def __init_subclass__(cls: Type[Self]):
-        cls.meta = TableMeta(cls)
+    def __init_subclass__(cls: Type[Self], primary: Optional[str] = None):
+        cls.meta = TableMeta(cls, primary)
 
     def __init__(self: Self, **data: Any):
         for name, field in self.meta.fields.items():
@@ -102,7 +102,9 @@ class Field(_Descriptor[Table], ABC, Generic[_TAny]):
 
     data_type: Type[_TAny]
 
-    def __init__(self, default: Union[_TAny, Default] = DEFAULT, foreign: Optional["Field"] = None):
+    def __init__(
+        self, default: Union[_TAny, Default] = Default.NONE, foreign: Optional["Field"] = None,
+    ):
         self.default: Any = default
         self.foreign = foreign
 
