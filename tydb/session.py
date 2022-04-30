@@ -82,7 +82,7 @@ class SelectQuery(_TableQuery[_TTable]):
                 target = final
                 for ref in path[:-1]:
                     target = getattr(target, ref.field.name)
-                setattr(target, path[-1].field.name, instance)
+                setattr(target, path[-1].name, instance)
             yield final
 
 
