@@ -16,6 +16,9 @@ LOG = logging.getLogger(__name__)
 
 
 class Query:
+    """
+    Representation of an SQL query.
+    """
 
     pk_query: QueryBuilder
 
@@ -23,6 +26,12 @@ class Query:
         self.cursor = cursor
 
     def execute(self) -> Generator[Tuple[Any, ...], None, None]:
+        """
+        Perform the query against the database associated with the provided cursor.
+
+        Yields tuples of rows returned by the query, if any.  As this method produces a generator,
+        its return value must either by iterated over or exausted in order to run the query.
+        """
         LOG.debug(self.pk_query)
         self.cursor.execute(str(self.pk_query))
         while True:
@@ -40,6 +49,9 @@ class _TableQuery(Query, Generic[_TTable]):
 
 
 class SelectQuery(_TableQuery[_TTable]):
+    """
+    Representation of a `SELECT` SQL query.
+    """
 
     def __init__(
         self, cursor: Cursor, table: Type[_TTable], where: Optional[pypika.Criterion] = None,
@@ -73,6 +85,9 @@ class SelectQuery(_TableQuery[_TTable]):
         return (table(**data), size)
 
     def execute(self) -> Generator[_TTable, None, None]:
+        """
+        Like `Query.execute`, but yields the results as instances of the table's class.
+        """
         for result in super().execute():
             final, pos = self._unpack(self.table, result)
             for path, _, _ in self.joins:
@@ -87,15 +102,24 @@ class SelectQuery(_TableQuery[_TTable]):
 
 
 class SelectOneQuery(SelectQuery[_TTable]):
+    """
+    Modified `SELECT` query to apply `LIMIT 1` and fetch a single result.
+    """
 
     def _pk_query(self):
         return super()._pk_query().limit(1)
 
     def execute(self) -> Optional[_TTable]:
+        """
+        Run `Query.execute` to completion, returning the only result if present, and `None` if not.
+        """
         return next(super().execute(), None)
 
 
 class InsertQuery(_TableQuery[_TTable]):
+    """
+    Representation of an `INSERT` SQL query.
+    """
 
     def __init__(
         self, cursor: Cursor, table: Type[_TTable], *rows: Iterable[Any],
@@ -116,11 +140,21 @@ class InsertQuery(_TableQuery[_TTable]):
         )
 
     def execute(self) -> Optional[int]:
+        """
+        Run `Query.execute` to completion, and return the new primary key value if present.
+
+        As `INSERT` queries do not return any rows, this method instead looks for the last row ID on
+        the cursor, which may or may not be present, and in any case will only be available when
+        inserting a single row.
+        """
         list(super().execute())
         return self.cursor.lastrowid if self.cursor.lastrowid not in (None, -1) else None
 
 
 class Session:
+    """
+    Wrapper around a DB-API-compatible `Connection`.
+    """
 
     def __init__(self, conn: Connection):
         self.conn = conn
@@ -129,6 +163,9 @@ class Session:
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
         where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Generator[_TTable, None, None]:
+        """
+        Perform a `SELECT` query against the given table or collection.
+        """
         if isinstance(table, BoundCollection):
             bind, table = table, table.coll.ref.owner
             relate = +bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
@@ -143,6 +180,11 @@ class Session:
         self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec,
         auto_join: bool = False
     ) -> Optional[_TTable]:
+        """
+        Perform a `SELECT ... LIMIT 1` query against the given table.
+
+        Returns the first matching record, or `None` if there are no matches.
+        """
         if auto_join:
             joins = tuple(table.meta.walk_refs())
         cur = self.conn.cursor()
@@ -152,6 +194,9 @@ class Session:
     def load(
         self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
+        """
+        Perform a `SELECT ... LIMIT 1` query for a referenced object.
+        """
         where = +bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
         if auto_join:
             joins = tuple(bind.ref.table.meta.walk_refs())
@@ -160,6 +205,11 @@ class Session:
         return query.execute()
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+        """
+        Perform an `INSERT` query to add a new record to the given table.
+
+        Returns the new instance if the underlying connection provides the last row ID.
+        """
         fields: List[Field] = []
         row = []
         for name, field in table.meta.fields.items():

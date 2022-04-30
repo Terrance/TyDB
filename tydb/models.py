@@ -1,3 +1,7 @@
+"""
+Infrastructure for describing database tables and columns as Python classes.
+"""
+
 from enum import Enum, auto
 from typing import (
     Any, Callable, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload,
@@ -14,17 +18,28 @@ _RefSpec = Union["Reference[Table]", "Tuple[Reference[Table], ...]"]
 _RefJoinSpec = Tuple[Tuple["Reference", ...], pypika.Table, pypika.Criterion]
 
 
-def snake_case(value: str):
+def snake_case(value: str) -> str:
+    """
+    Convert a CamelCase name into snake_case.
+    """
     return "".join("_" + char.lower() if char.isupper() else char for char in value).lstrip("_")
 
 
 class Default(Enum):
+    """
+    Special default values for database columns.
+    """
+
     NONE = auto()
+    """No default -- a value for this column must be provided each time."""
 
 
 class TableMeta(Generic[_TTable]):
+    """
+    Metadata and helper methods for a `Table` class, accessible via `Table.meta`.
+    """
 
-    def __init__(self: Self, table: Type[_TTable], primary: Optional[str] = None):
+    def __init__(self, table: Type[_TTable], primary: Optional[str] = None):
         self.table = table
         self.name = snake_case(table.__name__)
         self.pk_table = pypika.Table(self.name)
@@ -35,13 +50,24 @@ class TableMeta(Generic[_TTable]):
 
     @property
     def fields(self) -> Dict[str, "Field[Any]"]:
+        """
+        Mapping of attribute names to `Field` objects, for each declared field.
+        """
         return self._filter(Field)
 
     @property
     def references(self) -> Dict[str, "Reference[Table]"]:
+        """
+        Mapping of attribute names to `Reference` objects, for each declared reference.
+        """
         return self._filter(Reference)
 
     def walk_refs(self, *seen: Type["Table"]) -> List[Tuple["Reference[Table]", ...]]:
+        """
+        Recursively follow `Reference` declarations on a `Table`, avoiding any cycles.
+
+        Produces a list of tuples of foreign `Field` paths.
+        """
         specs: List[Tuple[Reference[Table], ...]] = []
         for ref in self.references.values():
             if ref.table in seen:
@@ -52,6 +78,11 @@ class TableMeta(Generic[_TTable]):
         return specs
 
     def join_refs(self, *specs: _RefSpec) -> List[_RefJoinSpec]:
+        """
+        Generate the metadata needed to join the given `Reference` declarations.
+
+        Produces a list of tuples of (foreign `Field` path tuple, table alias, join condition).
+        """
         joins: List[_RefJoinSpec] = []
         aliases: Dict[Tuple["Reference[Table]", ...], pypika.Table] = {}
         for spec in specs:
@@ -84,6 +115,9 @@ class _Descriptor(Generic[_TAny]):
 
     @property
     def id(self) -> Optional[str]:
+        """
+        Owning class and attribute name representation, once the descriptor has been assigned.
+        """
         if hasattr(self, "owner"):
             return "{}.{}".format(self.owner.__name__, self.name)
         else:
@@ -91,13 +125,16 @@ class _Descriptor(Generic[_TAny]):
 
 
 class Table:
+    """
+    Representation of a database table.
+    """
 
     meta: TableMeta[Self]
 
-    def __init_subclass__(cls: Type[Self], primary: Optional[str] = None):
+    def __init_subclass__(cls, primary: Optional[str] = None):
         cls.meta = TableMeta(cls, primary)
 
-    def __init__(self: Self, **data: Any):
+    def __init__(self, **data: Any):
         for name, field in self.meta.fields.items():
             self.__dict__[name] = field.decode(data[name])
 
@@ -107,8 +144,12 @@ class Table:
 
 
 class Field(_Descriptor[Table], Generic[_TAny]):
+    """
+    Representation of a database column.
+    """
 
     data_type: Union[Type[_TAny], Callable[[Any], _TAny]] = staticmethod(lambda x: x)
+    """Class or callable that converts a value to the appropriate Python type."""
 
     def __init__(
         self, default: Union[_TAny, Default] = Default.NONE, foreign: Optional["Field"] = None,
@@ -137,9 +178,15 @@ class Field(_Descriptor[Table], Generic[_TAny]):
         return "<{}: {}>".format(self.__class__.__name__, self.id)
 
     def decode(self, value: Any) -> _TAny:
+        """
+        Convert a value from a DB-API type to the appropriate Python type.
+        """
         return self.data_type(value)
 
     def encode(self, value: _TAny) -> Any:
+        """
+        Convert a value from a Python type to the appropriate DB-API type.
+        """
         if self.data_type in (int, float, bool):
             return self.data_type(value)
         else:
@@ -147,6 +194,9 @@ class Field(_Descriptor[Table], Generic[_TAny]):
 
 
 class Reference(_Descriptor[Table], Generic[_TTable]):
+    """
+    Representation of a foreign key.
+    """
 
     def __init__(self, field: Field[Any], table: Type[_TTable], backref: Optional[str] = None):
         self.field = field
@@ -185,6 +235,9 @@ class Reference(_Descriptor[Table], Generic[_TTable]):
 
 
 class BoundReference(Generic[_TTable]):
+    """
+    Placeholder reference on a model instance where the related object wasn't fetched.
+    """
 
     def __init__(self, ref: Reference[Table], inst: Table):
         self.ref = ref
@@ -197,6 +250,9 @@ class BoundReference(Generic[_TTable]):
 
 
 class Collection(Generic[_TTable], _Descriptor[Table]):
+    """
+    Representation of the reversed query of a foreign key.
+    """
 
     def __init__(self, ref: Reference):
         self.ref = ref
@@ -216,6 +272,9 @@ class Collection(Generic[_TTable], _Descriptor[Table]):
 
 
 class BoundCollection(Generic[_TTable]):
+    """
+    Placeholder collection on a model instance.
+    """
 
     def __init__(self, coll: Collection, inst: Table):
         self.coll = coll
