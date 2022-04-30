@@ -1,6 +1,7 @@
-from abc import ABC
 from enum import Enum, auto
-from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload
+from typing import (
+    Any, Callable, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload,
+)
 from typing_extensions import Self
 
 import pypika
@@ -70,7 +71,7 @@ class TableMeta(Generic[_TTable]):
         return joins
 
 
-class _Descriptor(ABC, Generic[_TAny]):
+class _Descriptor(Generic[_TAny]):
 
     owner: Type[_TAny]
     name: str
@@ -81,8 +82,15 @@ class _Descriptor(ABC, Generic[_TAny]):
         self.owner = owner
         self.name = name
 
+    @property
+    def id(self) -> Optional[str]:
+        if hasattr(self, "owner"):
+            return "{}.{}".format(self.owner.__name__, self.name)
+        else:
+            return "<unbound>"
 
-class Table(ABC):
+
+class Table:
 
     meta: TableMeta[Self]
 
@@ -94,18 +102,18 @@ class Table(ABC):
             self.__dict__[name] = field.decode(data[name])
 
     def __repr__(self):
-        kwargs = ("{}={}".format(key, value) for key, value in self.__dict__.items())
+        kwargs = ("{}={!r}".format(key, value) for key, value in self.__dict__.items())
         return "{}({})".format(self.__class__.__name__, ", ".join(kwargs))
 
 
-class Field(_Descriptor[Table], ABC, Generic[_TAny]):
+class Field(_Descriptor[Table], Generic[_TAny]):
 
-    data_type: Type[_TAny]
+    data_type: Union[Type[_TAny], Callable[[Any], _TAny]] = staticmethod(lambda x: x)
 
     def __init__(
         self, default: Union[_TAny, Default] = Default.NONE, foreign: Optional["Field"] = None,
     ):
-        self.default: Any = default
+        self.default = default
         self.foreign = foreign
 
     @property
@@ -126,7 +134,7 @@ class Field(_Descriptor[Table], ABC, Generic[_TAny]):
         return self._pk_field
 
     def __repr__(self):
-        return "<{}: {}.{}>".format(self.__class__.__name__, self.owner.__name__, self.name)
+        return "<{}: {}>".format(self.__class__.__name__, self.id)
 
     def decode(self, value: Any) -> _TAny:
         return self.data_type(value)
@@ -142,11 +150,22 @@ class Reference(_Descriptor[Table], Generic[_TTable]):
 
     def __init__(self, field: Field[Any], table: Type[_TTable], backref: Optional[str] = None):
         self.field = field
+        if not field.foreign:
+            raise ValueError("Reference field {} not foreign".format(field.id))
+        if field.foreign.owner is not table:
+            msg = "Reference table {} doesn't match field's related table {}"
+            raise TypeError(msg.format(table.__name__, field.foreign.owner.__name__))
         self.table = table
         if backref:
             coll = Collection(self)
             setattr(table, backref, coll)
             coll.__set_name__(table, backref)
+
+    def __set_name__(self, owner: Type[Table], name: str):
+        super().__set_name__(owner, name)
+        if owner is not self.field.owner:
+            msg = "Reference field {} on foreign table {}"
+            raise TypeError(msg.format(self.field.id, self.field.owner.__name__))
 
     @overload
     def __get__(self, obj: Table, objtype: Any = ...) -> _TTable: ...
@@ -162,9 +181,7 @@ class Reference(_Descriptor[Table], Generic[_TTable]):
             return BoundReference(self, obj)
 
     def __repr__(self):
-        return "<{}: {}.{} ({})>".format(
-            self.__class__.__name__, self.owner.__name__, self.name, self.table.__name__,
-        )
+        return "<{}: {} ({})>".format(self.__class__.__name__, self.id, self.table.__name__)
 
 
 class BoundReference(Generic[_TTable]):
@@ -174,9 +191,8 @@ class BoundReference(Generic[_TTable]):
         self.inst = inst
 
     def __repr__(self):
-        return "<{}: {}.{} ({}) on {!r}>".format(
-            self.__class__.__name__, self.ref.owner.__name__, self.ref.name,
-            self.ref.owner.__name__, self.inst,
+        return "<{}: {} ({}) on {!r}>".format(
+            self.__class__.__name__, self.ref.id, self.ref.owner.__name__, self.inst,
         )
 
 
@@ -196,9 +212,7 @@ class Collection(Generic[_TTable], _Descriptor[Table]):
         return BoundCollection(self, obj)
 
     def __repr__(self):
-        return "<{}: {}.{} ({})>".format(
-            self.__class__.__name__, self.owner.__name__, self.name, self.ref.owner.__name__,
-        )
+        return "<{}: {} ({})>".format(self.__class__.__name__, self.id, self.ref.owner.__name__)
 
 
 class BoundCollection(Generic[_TTable]):
@@ -208,7 +222,6 @@ class BoundCollection(Generic[_TTable]):
         self.inst = inst
 
     def __repr__(self):
-        return "<{}: {}.{} ({}) on {!r}>".format(
-            self.__class__.__name__, self.coll.owner.__name__, self.coll.name,
-            self.coll.ref.owner.__name__, self.inst,
+        return "<{}: {} ({}) on {!r}>".format(
+            self.__class__.__name__, self.coll.id, self.coll.ref.owner.__name__, self.inst,
         )
