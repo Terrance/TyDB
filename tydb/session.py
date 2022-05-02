@@ -1,20 +1,106 @@
 import logging
 from typing import (
-    Any, Generator, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union, cast,
+    Any, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar, Union, cast,
 )
 
 import pypika
 from pypika.queries import QueryBuilder
 
 from .api import Connection, Cursor
-from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
+from .models import _RefJoinSpec, _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 
 
+_TAny = TypeVar("_TAny")
 _TTable = TypeVar("_TTable", bound=Table)
 _TTableAlt = TypeVar("_TTableAlt", bound=Table)
 
 
 LOG = logging.getLogger(__name__)
+
+
+class _QueryResult(Generic[_TAny]):
+
+    def __init__(self, cursor: Cursor):
+        self.cursor = cursor
+        self.buffer: Optional[List[_TAny]] = None
+        self.iterating = False
+
+    def __iter__(self) -> Iterator[_TAny]:
+        if self.iterating:
+            raise RuntimeError("Initial result iteration still in progress")
+        elif self.buffer is not None:
+            return iter(self.buffer)
+        else:
+            return self
+
+    def __next__(self) -> _TAny:
+        if self.buffer is None:
+            self.iterating = True
+            self.buffer = []
+        row = self.cursor.fetchone()
+        if row:
+            item = self.transform(row)
+            self.buffer.append(item)
+            return item
+        else:
+            self.iterating = False
+            raise StopIteration
+
+    def __repr__(self) -> str:
+        state = ""
+        if self.iterating:
+            state = " (iterating)"
+        elif self.buffer is not None:
+            state = " ({} items)".format(len(self.buffer))
+        return "<{}: {}{}>".format(self.__class__.__name__, self.cursor, state)
+
+    def transform(self, row: Tuple[Any, ...]) -> _TAny:
+        """
+        Convert a result tuple of values into the desired type.
+        """
+        raise NotImplementedError
+
+
+class QueryResult(_QueryResult[Tuple[Any, ...]]):
+    """
+    Result buffer for a query.
+
+    Can be iterated over to fetch results incrementally from the database host.  Results are
+    buffered, so multiple iterations are supported.
+    """
+
+    def transform(self, row: Tuple[Any, ...]) -> Tuple[Any, ...]:
+        return row
+
+
+class SelectQueryResult(_QueryResult[_TTable], Generic[_TTable]):
+    """
+    Query result buffer that constructs table instances from rows, handling joined tables.
+    """
+
+    def __init__(self, cursor: Cursor, table: Type[_TTable], joins: List[_RefJoinSpec]):
+        super().__init__(cursor)
+        self.table = table
+        self.joins = joins
+
+    def _unpack(self, table: Type[_TTableAlt], result: Tuple[Any, ...]) -> Tuple[_TTableAlt, int]:
+        fields = table.meta.fields
+        size = len(fields)
+        row = result[:size]
+        data = dict(zip(fields, row))
+        return (table(**data), size)
+
+    def transform(self, row: Tuple[Any, ...]) -> _TTable:
+        final, pos = self._unpack(self.table, row)
+        for path, _, _ in self.joins:
+            table = path[-1].table
+            instance, offset = self._unpack(table, row[pos:])
+            pos += offset
+            target = final
+            for ref in path[:-1]:
+                target = getattr(target, ref.field.name)
+            setattr(target, path[-1].name, instance)
+        return final
 
 
 class Query:
@@ -27,20 +113,12 @@ class Query:
     def __init__(self, cursor: Cursor):
         self.cursor = cursor
 
-    def execute(self) -> Generator[Tuple[Any, ...], None, None]:
+    def execute(self) -> None:
         """
         Perform the query against the database associated with the provided cursor.
-
-        Yields tuples of rows returned by the query, if any.  As this method produces a generator,
-        its return value must either by iterated over or exausted in order to run the query.
         """
         LOG.debug(self.pk_query)
         self.cursor.execute(str(self.pk_query))
-        while True:
-            result = self.cursor.fetchone()
-            if not result:
-                break
-            yield result
 
 
 class _TableQuery(Query, Generic[_TTable]):
@@ -86,21 +164,12 @@ class SelectQuery(_TableQuery[_TTable]):
         data = dict(zip(fields, row))
         return (table(**data), size)
 
-    def execute(self) -> Generator[_TTable, None, None]:
+    def execute(self) -> SelectQueryResult[_TTable]:
         """
         Like `Query.execute`, but yields the results as instances of the table's class.
         """
-        for result in super().execute():
-            final, pos = self._unpack(self.table, result)
-            for path, _, _ in self.joins:
-                table = path[-1].table
-                instance, offset = self._unpack(table, result[pos:])
-                pos += offset
-                target = final
-                for ref in path[:-1]:
-                    target = getattr(target, ref.field.name)
-                setattr(target, path[-1].name, instance)
-            yield final
+        super().execute()
+        return SelectQueryResult(self.cursor, self.table, self.joins)
 
 
 class SelectOneQuery(SelectQuery[_TTable]):
@@ -149,7 +218,7 @@ class InsertQuery(_TableQuery[_TTable]):
         the cursor, which may or may not be present, and in any case will only be available when
         inserting a single row.
         """
-        list(super().execute())
+        super().execute()
         return self.cursor.lastrowid if self.cursor.lastrowid not in (None, -1) else None
 
 
@@ -164,7 +233,7 @@ class Session:
     def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
         where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
-    ) -> Generator[_TTable, None, None]:
+    ) -> SelectQueryResult[_TTable]:
         """
         Perform a `SELECT` query against the given table or collection.
         """
