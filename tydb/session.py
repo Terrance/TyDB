@@ -123,7 +123,7 @@ class InsertQuery(_TableQuery[_TTable]):
 
     def __init__(
         self, cursor: Cursor, table: Type[_TTable], *rows: Iterable[Any],
-        fields: Optional[Iterable["Field"]] = None,
+        fields: Optional[Iterable["Field[Any]"]] = None,
     ):
         super().__init__(cursor, table)
         self.rows = rows
@@ -210,7 +210,7 @@ class Session:
 
         Returns the new instance if the underlying connection provides the last row ID.
         """
-        fields: List[Field] = []
+        fields: List[Field[Any]] = []
         row = []
         for name, field in table.meta.fields.items():
             try:

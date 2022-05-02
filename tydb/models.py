@@ -15,7 +15,7 @@ _TAny = TypeVar("_TAny")
 _TTable = TypeVar("_TTable", bound="Table", covariant=True)
 
 _RefSpec = Union["Reference[Table]", "Tuple[Reference[Table], ...]"]
-_RefJoinSpec = Tuple[Tuple["Reference", ...], pypika.Table, pypika.Criterion]
+_RefJoinSpec = Tuple[Tuple["Reference[Table]", ...], pypika.Table, pypika.Criterion]
 
 
 def snake_case(value: str) -> str:
@@ -152,7 +152,8 @@ class Field(_Descriptor[Table], Generic[_TAny]):
     """Class or callable that converts a value to the appropriate Python type."""
 
     def __init__(
-        self, default: Union[_TAny, Default] = Default.NONE, foreign: Optional["Field"] = None,
+        self, default: Union[_TAny, Default] = Default.NONE,
+        foreign: Optional["Field[Table]"] = None,
     ):
         self.default = default
         self.foreign = foreign
@@ -254,7 +255,7 @@ class Collection(Generic[_TTable], _Descriptor[Table]):
     Representation of the reversed query of a foreign key.
     """
 
-    def __init__(self, ref: Reference):
+    def __init__(self, ref: Reference[Table]):
         self.ref = ref
 
     @overload
