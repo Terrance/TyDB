@@ -1,5 +1,7 @@
 import logging
-from typing import Any, Generator, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    Any, Generator, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union, cast,
+)
 
 import pypika
 from pypika.queries import QueryBuilder
@@ -167,7 +169,9 @@ class Session:
         Perform a `SELECT` query against the given table or collection.
         """
         if isinstance(table, BoundCollection):
-            bind, table = table, table.coll.ref.owner
+            bind = table
+            table = cast(Type[_TTable], table.coll.ref.owner)
+            assert bind.coll.ref.field.foreign
             relate = +bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
             where = relate & where if where else relate
         if auto_join:
@@ -197,11 +201,12 @@ class Session:
         """
         Perform a `SELECT ... LIMIT 1` query for a referenced object.
         """
+        assert bind.ref.field.foreign
         where = +bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
         if auto_join:
             joins = tuple(bind.ref.table.meta.walk_refs())
         cur = self.conn.cursor()
-        query = SelectOneQuery(cur, bind.ref.table, where, *joins)
+        query = SelectOneQuery(cur, cast(Type[_TTable], bind.ref.table), where, *joins)
         return query.execute()
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:

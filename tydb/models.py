@@ -97,6 +97,7 @@ class TableMeta(Generic[_TTable]):
                     alias = "_{}_{}".format(len(aliases) + 1, ref.table.meta.name)
                     pk_foreign = ref.table.meta.pk_table.as_(alias)
                     aliases[path] = pk_foreign
+                    assert ref.field.foreign
                     join = pk_parent[ref.field.name] == pk_foreign[ref.field.foreign.name]
                     joins.append((path, pk_foreign, join))
         return joins
@@ -153,7 +154,7 @@ class Field(_Descriptor[Table], Generic[_TAny]):
 
     def __init__(
         self, default: Union[_TAny, Default] = Default.NONE,
-        foreign: Optional["Field[Table]"] = None,
+        foreign: Optional["Field[Any]"] = None,
     ):
         self.default = default
         self.foreign = foreign
@@ -277,7 +278,7 @@ class BoundCollection(Generic[_TTable]):
     Placeholder collection on a model instance.
     """
 
-    def __init__(self, coll: Collection, inst: Table):
+    def __init__(self, coll: Collection[_TTable], inst: Table):
         self.coll = coll
         self.inst = inst
 
