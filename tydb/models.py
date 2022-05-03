@@ -32,6 +32,10 @@ class Default(Enum):
 
     NONE = auto()
     """No default -- a value for this column must be provided each time."""
+    SERVER = auto()
+    """Rely on the server to produce a value."""
+    TIMESTAMP_NOW = auto()
+    """Use the current timestamp as provided by the database host."""
 
 
 class TableMeta(Generic[_TTable]):

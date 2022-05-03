@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Generic, Optional, Type, TypeVar
 
-from .models import Default, Field
+from .models import Field
 
 
 _TAny = TypeVar("_TAny")
@@ -41,11 +41,6 @@ class DateTimeField(Field[datetime]):
     """
     data_type = datetime
 
-    def __init__(self, default_now: bool = False, **kwargs: Any):
-        super().__init__(**kwargs)
-        if default_now:
-            self.default = Default.TIMESTAMP_NOW
-
     def decode(self, value: Any) -> datetime:
         if isinstance(value, datetime):
             return value.astimezone()
@@ -77,10 +72,16 @@ class Nullable:
 
     @classmethod
     def is_nullable(cls, field: Type[Field[Any]]) -> bool:
+        """
+        Test if a field type is nullable.
+        """
         return issubclass(field, cls._NullableField)
 
     @classmethod
     def non_null_type(cls, field: Type[Field[Any]]) -> Type[Field[Any]]:
+        """
+        Derive the non-nullable base field type from a nullable subclass.
+        """
         if cls.is_nullable(field):
             base = field.__bases__[1]
             assert issubclass(base, Field)

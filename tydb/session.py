@@ -1,12 +1,14 @@
+from datetime import datetime
 import logging
 from typing import (
     Any, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar, Union, cast,
 )
 
 import pypika
-from pypika.queries import QueryBuilder
+from pypika.queries import CreateQueryBuilder, QueryBuilder
 
 from tydb.dialects import Dialect
+from tydb.fields import Nullable
 
 from .api import Connection, Cursor
 from .models import _RefJoinSpec, _RefSpec, BoundCollection, BoundReference, Default, Field, Table
@@ -110,7 +112,7 @@ class Query:
     Representation of an SQL query.
     """
 
-    pk_query: QueryBuilder
+    pk_query: Union[QueryBuilder, CreateQueryBuilder]
 
     def __init__(self, cursor: Cursor, dialect: Type[Dialect]):
         self.cursor = cursor
@@ -129,6 +131,41 @@ class _TableQuery(Query, Generic[_TTable]):
     def __init__(self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable]):
         super().__init__(cursor, dialect)
         self.table = table
+
+
+class CreateTableQuery(_TableQuery[Table]):
+    """
+    Representation of a `CREATE TABLE` SQL query.
+    """
+
+    def __init__(self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable]):
+        super().__init__(cursor, dialect, table)
+        self.pk_query = self._pk_query()
+
+    def _pk_query(self):
+        query: CreateQueryBuilder = (
+            self.dialect.query_builder
+            .create_table(self.table.meta.pk_table)
+            .if_not_exists()
+        )
+        cols: List[pypika.Column] = []
+        primary: Optional[pypika.Column] = None
+        for field in self.table.meta.fields.values():
+            type_ = self.dialect.column_type(field)
+            nullable = Nullable.is_nullable(field.__class__)
+            default = None
+            if field.default is Default.TIMESTAMP_NOW:
+                default = self.dialect.datetime_default_now
+            elif field.default is not Default.NONE:
+                default = field.default
+            col = pypika.Column(field.name, type_, nullable, default)
+            cols.append(col)
+            if self.table.meta.primary is field:
+                primary = col
+        query = query.columns(*cols)
+        if primary:
+            query = query.primary_key(primary)
+        return query
 
 
 class SelectQuery(_TableQuery[_TTable]):
@@ -237,6 +274,15 @@ class Session:
     def __repr__(self):
         return "<{}: {!r} {}>".format(self.__class__.__name__, self.conn, self.dialect.__name__)
 
+    def setup(self, *tables: Type[Table]):
+        """
+        Perform `CREATE TABLE` queries for the given tables.
+        """
+        for table in tables:
+            cur = self.conn.cursor()
+            query = CreateTableQuery(cur, self.dialect, table)
+            query.execute()
+
     def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
         where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
@@ -301,7 +347,12 @@ class Session:
             except KeyError:
                 if field.default is Default.NONE:
                     raise
-                value = field.default
+                elif field.default is Default.SERVER:
+                    continue
+                elif field.default is Default.TIMESTAMP_NOW:
+                    value = datetime.now().astimezone()
+                else:
+                    value = field.default
             row.append(value)
             fields.append(field)
         cur = self.conn.cursor()

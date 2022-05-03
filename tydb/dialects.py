@@ -1,4 +1,5 @@
-from typing import Any, Dict, Type
+from types import NotImplementedType
+from typing import Any, Dict, Type, Union
 
 import pypika
 import pypika.functions
@@ -22,6 +23,8 @@ class Dialect:
         StrField: "TEXT",
     }
 
+    datetime_default_now: Union[str, pypika.terms.Term, NotImplementedType] = NotImplemented
+
     @classmethod
     def column_type(cls, field: Field[Any]) -> str:
         non_null = Nullable.non_null_type(field.__class__)
@@ -40,6 +43,8 @@ class SQLiteDialect(Dialect):
         **Dialect.column_types,
         DateTimeField: "TIMESTAMP",
     }
+
+    datetime_default_now = pypika.functions.CurTimestamp()  # UTC
 
 
 class PostgreSQLDialect(Dialect):
@@ -61,6 +66,8 @@ class PostgreSQLDialect(Dialect):
         else:
             return super().column_type(field)
 
+    datetime_default_now = pypika.functions.Now()  # Host's timezone
+
 
 class MySQLDialect(Dialect):
     """
@@ -73,3 +80,5 @@ class MySQLDialect(Dialect):
         **Dialect.column_types,
         DateTimeField: "DATETIME",
     }
+
+    datetime_default_now = pypika.functions.CurTimestamp()  # Host's timezone
