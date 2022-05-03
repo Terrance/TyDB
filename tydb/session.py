@@ -6,6 +6,8 @@ from typing import (
 import pypika
 from pypika.queries import QueryBuilder
 
+from tydb.dialects import Dialect
+
 from .api import Connection, Cursor
 from .models import _RefJoinSpec, _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 
@@ -110,8 +112,9 @@ class Query:
 
     pk_query: QueryBuilder
 
-    def __init__(self, cursor: Cursor):
+    def __init__(self, cursor: Cursor, dialect: Type[Dialect]):
         self.cursor = cursor
+        self.dialect = dialect
 
     def execute(self) -> None:
         """
@@ -123,8 +126,8 @@ class Query:
 
 class _TableQuery(Query, Generic[_TTable]):
 
-    def __init__(self, cursor: Cursor, table: Type[_TTable]):
-        super().__init__(cursor)
+    def __init__(self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable]):
+        super().__init__(cursor, dialect)
         self.table = table
 
 
@@ -134,17 +137,17 @@ class SelectQuery(_TableQuery[_TTable]):
     """
 
     def __init__(
-        self, cursor: Cursor, table: Type[_TTable], where: Optional[pypika.Criterion] = None,
-        *refs: _RefSpec,
+        self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable],
+        where: Optional[pypika.Criterion] = None, *refs: _RefSpec,
     ):
-        super().__init__(cursor, table)
+        super().__init__(cursor, dialect, table)
         self.where = where
         self.joins = table.meta.join_refs(*refs)
         self.pk_query = self._pk_query()
 
     def _pk_query(self):
         query: QueryBuilder = (
-            pypika.Query
+            self.dialect.query_builder
             .from_(self.table.meta.pk_table)
             .select(*self.table.meta.fields)
         )
@@ -193,10 +196,10 @@ class InsertQuery(_TableQuery[_TTable]):
     """
 
     def __init__(
-        self, cursor: Cursor, table: Type[_TTable], *rows: Iterable[Any],
+        self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable], *rows: Iterable[Any],
         fields: Optional[Iterable["Field[Any]"]] = None,
     ):
-        super().__init__(cursor, table)
+        super().__init__(cursor, dialect, table)
         self.rows = rows
         self.fields = fields or table.meta.fields.values()
         self.pk_query = self._pk_query()
@@ -204,7 +207,7 @@ class InsertQuery(_TableQuery[_TTable]):
     def _pk_query(self):
         cols = (field.name for field in self.fields)
         return (
-            pypika.Query
+            self.dialect.query_builder
             .into(self.table.meta.pk_table)
             .columns(*cols)
             .insert(*self.rows)
@@ -227,8 +230,12 @@ class Session:
     Wrapper around a DB-API-compatible `Connection`.
     """
 
-    def __init__(self, conn: Connection):
+    def __init__(self, conn: Connection, dialect: Type[Dialect] = Dialect):
         self.conn = conn
+        self.dialect = dialect
+
+    def __repr__(self):
+        return "<{}: {!r} {}>".format(self.__class__.__name__, self.conn, self.dialect.__name__)
 
     def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
@@ -246,7 +253,7 @@ class Session:
         if auto_join:
             joins = tuple(table.meta.walk_refs())
         cur = self.conn.cursor()
-        query = SelectQuery(cur, table, where, *joins)
+        query = SelectQuery(cur, self.dialect, table, where, *joins)
         return query.execute()
 
     def get(
@@ -261,7 +268,7 @@ class Session:
         if auto_join:
             joins = tuple(table.meta.walk_refs())
         cur = self.conn.cursor()
-        query = SelectOneQuery(cur, table, where, *joins)
+        query = SelectOneQuery(cur, self.dialect, table, where, *joins)
         return query.execute()
 
     def load(
@@ -275,7 +282,9 @@ class Session:
         if auto_join:
             joins = tuple(bind.ref.table.meta.walk_refs())
         cur = self.conn.cursor()
-        query = SelectOneQuery(cur, cast(Type[_TTable], bind.ref.table), where, *joins)
+        query = SelectOneQuery(
+            cur, self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins,
+        )
         return query.execute()
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
@@ -296,7 +305,7 @@ class Session:
             row.append(value)
             fields.append(field)
         cur = self.conn.cursor()
-        query = InsertQuery(cur, table, row, fields=fields)
+        query = InsertQuery(cur, self.dialect, table, row, fields=fields)
         primary = query.execute()
         if primary is not None and table.meta.primary:
             return self.get(table, +table.meta.primary == primary)
