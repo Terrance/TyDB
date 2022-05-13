@@ -81,4 +81,11 @@ class MySQLDialect(Dialect):
         DateTimeField: "DATETIME",
     }
 
+    @classmethod
+    def column_type(cls, field: Field[Any]) -> str:
+        if isinstance(field, IntField) and field is field.owner.meta.primary:
+            return "INTEGER AUTO_INCREMENT"
+        else:
+            return super().column_type(field)
+
     datetime_default_now = pypika.functions.CurTimestamp()  # Host's timezone

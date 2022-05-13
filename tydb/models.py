@@ -143,6 +143,15 @@ class Table:
         for name, field in self.meta.fields.items():
             self.__dict__[name] = field.decode(data[name])
 
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        if self.meta.primary:
+            attr = self.meta.primary.name
+            return getattr(self, attr) == getattr(other, attr)
+        else:
+            return self.__dict__ == other.__dict__
+
     def __repr__(self):
         kwargs = ("{}={!r}".format(key, value) for key, value in self.__dict__.items())
         return "{}({})".format(self.__class__.__name__, ", ".join(kwargs))

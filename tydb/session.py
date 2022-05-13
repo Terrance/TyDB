@@ -156,7 +156,7 @@ class CreateTableQuery(_TableQuery[Table]):
             default = None
             if field.default is Default.TIMESTAMP_NOW:
                 default = self.dialect.datetime_default_now
-            elif field.default is not Default.NONE:
+            elif not isinstance(field.default, Default):
                 default = field.default
             col = pypika.Column(field.name, type_, nullable, default)
             cols.append(col)
