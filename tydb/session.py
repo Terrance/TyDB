@@ -259,7 +259,52 @@ class InsertQuery(_TableQuery[_TTable]):
         inserting a single row.
         """
         super().execute()
-        return self.cursor.lastrowid if self.cursor.lastrowid not in (None, -1) else None
+        last = getattr(self.cursor, "lastrowid", None)
+        return last if last not in (None, -1) else None
+
+
+class DeleteQuery(_TableQuery[_TTable]):
+    """
+    Representation of a `DELETE` SQL query.
+    """
+
+    def __init__(
+        self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable], *insts: Any,
+    ):
+        if not table.meta.primary:
+            raise RuntimeError("Table {} has no primary key".format(table.meta.name))
+        super().__init__(cursor, dialect, table)
+        self.ids = [
+            getattr(inst, table.meta.primary.name) if isinstance(inst, table) else inst
+            for inst in insts
+        ]
+        self.pk_query = (
+            self.dialect.query_builder
+            .from_(table.meta.pk_table)
+            .delete()
+            .where((+table.meta.primary).isin(self.ids))
+        )
+
+
+class DeleteOneQuery(_TableQuery[_TTable]):
+    """
+    Representation of a `DELETE` SQL query that compares all fields, for tables with no primary key.
+    """
+
+    def __init__(self, cursor: Cursor, dialect: Type[Dialect], inst: _TTable):
+        super().__init__(cursor, dialect, inst.__class__)
+        self.inst = inst
+        self.pk_query = self._pk_query()
+
+    def _pk_query(self):
+        query: QueryBuilder = (
+            self.dialect.query_builder
+            .from_(self.table.meta.pk_table)
+            .delete()
+        )
+        for field in self.table.meta.fields.values():
+            query = query.where(+field == getattr(self.inst, field.name))
+        return query
 
 
 class Session:
@@ -360,3 +405,28 @@ class Session:
         primary = query.execute()
         if primary is not None and table.meta.primary:
             return self.get(table, +table.meta.primary == primary)
+
+    def remove(self, *insts: Table) -> None:
+        """
+        Perform a `DELETE` query that removes the given instances.
+        """
+        if not insts:
+            return
+        table = insts[0].__class__
+        cur = self.conn.cursor()
+        if table.meta.primary:
+            query = DeleteQuery(cur, self.dialect, table, *insts)
+        elif len(insts) == 1:
+            query = DeleteOneQuery(cur, self.dialect, insts[0])
+        else:
+            raise RuntimeError("Can only delete single instance of table without primary key")
+        query.execute()
+
+    def delete(self, table: Type[Table], *ids: Any) -> None:
+        """
+        Perform a `DELETE` query that removes rows of the given table by primary key value.
+        """
+        if not ids:
+            return
+        cur = self.conn.cursor()
+        DeleteQuery(cur, self.dialect, table, *ids).execute()
