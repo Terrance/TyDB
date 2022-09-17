@@ -174,7 +174,7 @@ class Field(_Descriptor[Table], Generic[_TAny]):
 
     @property
     def _pk_field(self) -> pypika.Field:
-        return getattr(self.owner.meta.pk_table, self.name)
+        return self.owner.meta.pk_table.field(self.name)
 
     @overload
     def __get__(self, obj: Table, objtype: Any = ...) -> _TAny: ...
