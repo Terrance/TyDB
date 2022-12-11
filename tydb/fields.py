@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import Any, Generic, Optional, Type, TypeVar
+from typing import Any, Generic, Optional, Type, TypeVar, Union, overload
 
-from .models import Field
+from .models import Field, Reference, Table
 
 
 _TAny = TypeVar("_TAny")
+_TTable = TypeVar("_TTable", bound=Table)
 
 
 class IntField(Field[int]):
@@ -60,7 +61,10 @@ class Nullable:
     Derivatives of fields that also accept null as a database value.
     """
 
-    class _NullableField(Field[Optional[_TAny]], Generic[_TAny]):
+    class _Nullable:
+        pass
+
+    class _NullableField(_Nullable, Field[Optional[_TAny]]):
 
         data_type: Type[_TAny]
 
@@ -71,21 +75,24 @@ class Nullable:
             return super().encode(value) if value is not None else None
 
     @classmethod
-    def is_nullable(cls, field: Type[Field[Any]]) -> bool:
+    def is_nullable(cls, field: Type[Union[Field[Any], Reference[Any]]]) -> bool:
         """
         Test if a field type is nullable.
         """
-        return issubclass(field, cls._NullableField)
+        return issubclass(field, cls._Nullable)
+
+    @overload
+    def non_null_type(cls, field: Type[Field[Any]]) -> Type[Field[Any]]: ...
+    @overload
+    def non_null_type(cls, field: Type[Reference[Any]]) -> Type[Reference[Any]]: ...
 
     @classmethod
-    def non_null_type(cls, field: Type[Field[Any]]) -> Type[Field[Any]]:
+    def non_null_type(cls, field: Type[Union[Field[Any], Reference[Any]]]):
         """
         Derive the non-nullable base field type from a nullable subclass.
         """
         if cls.is_nullable(field):
-            base = field.__bases__[1]
-            assert issubclass(base, Field)
-            return base
+            return next((base for base in field.__bases__ if not issubclass(base, cls._Nullable)))
         else:
             return field
 
@@ -103,3 +110,13 @@ class Nullable:
 
     class DateTimeField(_NullableField[str], DateTimeField):
         pass
+
+    class Reference(_Nullable, Reference[_TTable]):
+
+        @overload
+        def __get__(self, obj: Table, objtype: Any = ...) -> Optional[_TTable]: ...
+        @overload
+        def __get__(self, obj: None, objtype: Any = ...) -> "Reference[_TTable]": ...
+
+        def __get__(self, obj: Optional[Table], objtype: Optional[Type[Table]] = None):
+            return super().__get__(obj, objtype)
