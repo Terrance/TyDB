@@ -163,6 +163,40 @@ class TestTable(TestCase):
         with self.subTest("size"):
             self.assertEqual(len(joins), 4)
 
+    def test_eq_class(self):
+        class Model(Table, primary="id"):
+            id = Field()
+        class Other(Table, primary="id"):
+            id = Field()
+        first = Model(id=1)
+        second = Model(id=1)
+        other = Other(id=1)
+        self.assertEqual(first, first)
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, other)
+
+    def test_eq_primary(self):
+        class Model(Table, primary="id"):
+            id = Field()
+        first = Model(id=1)
+        second = Model(id=1)
+        other = Model(id=2)
+        self.assertEqual(first, first)
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, other)
+
+    def test_eq_fields(self):
+        class Model(Table):
+            one = Field()
+            two = Field()
+            three = Field()
+        first = Model(one=1, two=True, three="3")
+        second = Model(one=1, two=True, three="3")
+        other = Model(one=1, two=False, three="not 3")
+        self.assertEqual(first, first)
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, other)
+
     def test_repr(self):
         class Other(Table):
             key = Field()
