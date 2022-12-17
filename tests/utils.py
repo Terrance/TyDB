@@ -1,10 +1,15 @@
-from functools import wraps
+import asyncio
 from inspect import isfunction
 import json
 import os
 import sqlite3
-from typing import Callable, Dict, List, Tuple, Type
+from typing import Awaitable, Callable, Dict, List, Tuple, Type, Union
 from unittest import TestCase
+
+try:
+    import aiosqlite
+except ImportError:
+    aiosqlite = None
 
 try:
     import MySQLdb
@@ -16,28 +21,25 @@ try:
 except ImportError:
     psycopg = None
 
-from tydb.api import Connection
-from tydb.dialects import Dialect, MySQLDialect, PostgreSQLDialect, SQLiteDialect
+from tydb.dialects import MySQLDialect, PostgreSQLDialect, SQLiteDialect
 from tydb.models import Table
-from tydb.session import Session
+from tydb.session import Session, AsyncSession
+from tydb.utils import maybe_await
 
 
-SessionTestMethod = Callable[[TestCase, Session], None]
+SessionTestMethod = Callable[[TestCase, Union[AsyncSession, Session]], Awaitable[None]]
 TestMethod = Callable[[TestCase], None]
 
 
 def dialect_methods(
     fn: SessionTestMethod, *tables: Type[Table]
-) -> Tuple[TestMethod, TestMethod, TestMethod]:
-    def run_test(self: TestCase, conn: Connection, dialect: Type[Dialect]):
-        sess = Session(conn, dialect)
-        sess.setup(*tables)
-        fn(self, sess)
-    @wraps(fn)
+) -> Tuple[TestMethod, ...]:
+    async def run_test(self: TestCase, sess: Union[Session, AsyncSession]):
+        await maybe_await(sess.setup(*tables))
+        await fn(self, sess)
     def sqlite(self: TestCase):
         with sqlite3.connect(":memory:") as conn:
-            run_test(self, conn, SQLiteDialect)
-    @wraps(fn)
+            asyncio.run(run_test(self, Session(conn, SQLiteDialect)))
     def postgresql(self: TestCase):
         if not psycopg:
             self.skipTest("No PostgreSQL driver installed (psycopg)")
@@ -45,9 +47,8 @@ def dialect_methods(
         if not pgsql_conn:
             self.skipTest("No PostgreSQL connection configured (TYDB_PGSQL_CONN)")
         with psycopg.connect(pgsql_conn) as conn:
-            run_test(self, conn, PostgreSQLDialect)
+            asyncio.run(run_test(self, Session(conn, PostgreSQLDialect)))
             conn.rollback()
-    @wraps(fn)
     def mysql(self: TestCase):
         if not MySQLdb:
             self.skipTest("No MySQL driver installed (MySQLdb)")
@@ -55,9 +56,16 @@ def dialect_methods(
         if not mysql_conn:
             self.skipTest("No MySQL connection configured (TYDB_MYSQL_CONN)")
         with MySQLdb.connect(**json.loads(mysql_conn)) as conn:
-            run_test(self, conn, MySQLDialect)
+            asyncio.run(run_test(self, Session(conn, MySQLDialect)))
             conn.rollback()
-    return sqlite, postgresql, mysql
+    def sqlite_async(self: TestCase):
+        if not aiosqlite:
+            self.skipTest("No async SQLite driver installed (aiosqlite)")
+        async def inner():
+            async with aiosqlite.connect(":memory:") as conn:
+                await run_test(self, AsyncSession(conn, SQLiteDialect))
+        asyncio.run(inner())
+    return sqlite, postgresql, mysql, sqlite_async
 
 
 def with_dialects(cls: Type[TestCase]) -> Type[TestCase]:
@@ -69,8 +77,7 @@ def with_dialects(cls: Type[TestCase]) -> Type[TestCase]:
         elif isfunction(member):
             found[name] = dialect_methods(member, *tables)
     for name, methods in tuple(found.items()):
-        methods = zip(("sqlite", "postgresql", "mysql"), methods)
-        for dialect, method in methods:
-            setattr(cls, "{}__{}".format(name, dialect), method)
+        for method in methods:
+            setattr(cls, "{}__{}".format(name, method.__name__), method)
         delattr(cls, name)
     return cls

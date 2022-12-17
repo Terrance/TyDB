@@ -1,10 +1,20 @@
+from itertools import count
+import time
+from typing import Union
 from unittest import TestCase
 
 from tydb.fields import IntField
 from tydb.models import Table
-from tydb.session import Session
+from tydb.session import AsyncSession, Session
+from tydb.utils import maybe_await
 
-from .utils import with_dialects
+try:
+    from .utils import with_dialects
+except ImportError:
+    from tests.utils import with_dialects
+
+
+index = count(int(time.time() * 1000))
 
 
 @with_dialects
@@ -13,35 +23,42 @@ class TestIntField(TestCase):
     class Model(Table, primary="field"):
         field = IntField()
 
-    def test_field_create(self, sess: Session):
-        inst = sess.create(self.Model, field=1)
+    main_value = 1
+    alt_value = 2
+
+    async def test_field_create(self, sess: Union[AsyncSession, Session]):
+        inst = await maybe_await(sess.create(self.Model, field=self.main_value))
         if inst is None:
             self.skipTest("Returning instance not supported by driver")
-        self.assertEqual(inst, self.Model(field=1))
+        self.assertEqual(inst, self.Model(field=self.main_value))
 
-    def test_field_select(self, sess: Session):
-        sess.create(self.Model, field=1)
-        result = list(sess.select(self.Model))
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], self.Model(field=1))
+    async def test_field_select(self, sess: Union[AsyncSession, Session]):
+        await maybe_await(sess.create(self.Model, field=self.main_value))
+        result = [inst async for inst in await maybe_await(sess.select(self.Model))]
+        self.assertEqual(len(result), self.main_value)
+        self.assertEqual(result[0], self.Model(field=self.main_value))
 
-    def test_field_select_where(self, sess: Session):
-        sess.create(self.Model, field=1)
-        result = list(sess.select(self.Model, +self.Model.field == 1))
-        self.assertEqual(len(result), 1)
-        result = list(sess.select(self.Model, +self.Model.field == 2))
+    async def test_field_select_where(self, sess: Union[AsyncSession, Session]):
+        await maybe_await(sess.create(self.Model, field=self.main_value))
+        result = [inst async for inst in await maybe_await(sess.select(
+            self.Model, +self.Model.field == self.main_value,
+        ))]
+        self.assertEqual(len(result), self.main_value)
+        result = [inst async for inst in await maybe_await(sess.select(
+            self.Model, +self.Model.field == self.alt_value,
+        ))]
         self.assertEqual(len(result), 0)
 
-    def test_field_remove(self, sess: Session):
-        inst = sess.create(self.Model, field=1)
+    async def test_field_remove(self, sess: Union[AsyncSession, Session]):
+        inst = await maybe_await(sess.create(self.Model, field=self.main_value))
         if inst is None:
             self.skipTest("Returning instance not supported by driver")
-        sess.remove(inst)
-        result = list(sess.select(self.Model))
+        await maybe_await(sess.remove(inst))
+        result = [inst async for inst in await maybe_await(sess.select(self.Model))]
         self.assertEqual(len(result), 0)
 
-    def test_field_delete(self, sess: Session):
-        sess.create(self.Model, field=1)
-        sess.delete(self.Model, 1)
-        result = list(sess.select(self.Model))
+    async def test_field_delete(self, sess: Union[AsyncSession, Session]):
+        await maybe_await(sess.create(self.Model, field=self.main_value))
+        await maybe_await(sess.delete(self.Model, self.main_value))
+        result = [inst async for inst in await maybe_await(sess.select(self.Model))]
         self.assertEqual(len(result), 0)
