@@ -1,389 +1,95 @@
 from datetime import datetime
 import logging
-from typing import (
-    Any, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar, Union, cast,
-)
+from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union, cast
 
 import pypika
-from pypika.queries import CreateQueryBuilder, QueryBuilder
 
-from tydb.dialects import Dialect
-from tydb.fields import Nullable
+from .api import AsyncConnection, AsyncCursor, Connection, Cursor
+from .dialects import Dialect
+from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
+from .queries import (
+    _InsertQuery, _SelectQuery, _SelectQueryResult,
+    AsyncInsertQuery, AsyncSelectQuery, AsyncSelectOneQuery, AsyncSelectQueryResult,
+    CreateTableQuery, DeleteQuery, DeleteOneQuery, InsertQuery,
+    SelectOneQuery, SelectQuery, SelectQueryResult,
+)
+from .utils import maybe_await
 
-from .api import Connection, Cursor
-from .models import _RefJoinSpec, _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 
-
-_TAny = TypeVar("_TAny")
+_T = TypeVar("_T")
 _TTable = TypeVar("_TTable", bound=Table)
-_TTableAlt = TypeVar("_TTableAlt", bound=Table)
+_MaybeAsync = Union[_T, Awaitable[_T]]
+_MaybeAsyncCursor = Union[Cursor, AsyncCursor]
 
 
 LOG = logging.getLogger(__name__)
 
 
-class _QueryResult(Generic[_TAny]):
+class _Session:
 
-    def __init__(self, cursor: Cursor):
-        self.cursor = cursor
-        self.buffer: Optional[List[_TAny]] = None
-        self.iterating = False
-
-    def __iter__(self) -> Iterator[_TAny]:
-        if self.iterating:
-            raise RuntimeError("Initial result iteration still in progress")
-        elif self.buffer is not None:
-            return iter(self.buffer)
-        else:
-            return self
-
-    def __next__(self) -> _TAny:
-        if self.buffer is None:
-            self.iterating = True
-            self.buffer = []
-        row = self.cursor.fetchone()
-        if row:
-            item = self.transform(row)
-            self.buffer.append(item)
-            return item
-        else:
-            self.iterating = False
-            raise StopIteration
-
-    def __repr__(self) -> str:
-        state = ""
-        if self.iterating:
-            state = " (iterating)"
-        elif self.buffer is not None:
-            state = " ({} items)".format(len(self.buffer))
-        return "<{}: {}{}>".format(self.__class__.__name__, self.cursor, state)
-
-    def transform(self, row: Tuple[Any, ...]) -> _TAny:
-        """
-        Convert a result tuple of values into the desired type.
-        """
-        raise NotImplementedError
-
-
-class QueryResult(_QueryResult[Tuple[Any, ...]]):
-    """
-    Result buffer for a query.
-
-    Can be iterated over to fetch results incrementally from the database host.  Results are
-    buffered, so multiple iterations are supported.
-    """
-
-    def transform(self, row: Tuple[Any, ...]) -> Tuple[Any, ...]:
-        return row
-
-
-class SelectQueryResult(_QueryResult[_TTable], Generic[_TTable]):
-    """
-    Query result buffer that constructs table instances from rows, handling joined tables.
-    """
-
-    def __init__(self, cursor: Cursor, table: Type[_TTable], joins: List[_RefJoinSpec]):
-        super().__init__(cursor)
-        self.table = table
-        self.joins = joins
-
-    def _unpack(self, table: Type[_TTableAlt], result: Tuple[Any, ...]) -> Tuple[_TTableAlt, int]:
-        fields = table.meta.fields
-        size = len(fields)
-        row = result[:size]
-        data = dict(zip(fields, row))
-        return (table(**data), size)
-
-    def transform(self, row: Tuple[Any, ...]) -> _TTable:
-        final, pos = self._unpack(self.table, row)
-        for path, _, _ in self.joins:
-            table = path[-1].table
-            instance, offset = self._unpack(table, row[pos:])
-            pos += offset
-            target = final
-            for ref in path[:-1]:
-                target = getattr(target, ref.field.name)
-            setattr(target, path[-1].name, instance)
-        return final
-
-
-class Query:
-    """
-    Representation of an SQL query.
-    """
-
-    pk_query: Union[QueryBuilder, CreateQueryBuilder]
-
-    def __init__(self, cursor: Cursor, dialect: Type[Dialect]):
-        self.cursor = cursor
-        self.dialect = dialect
-
-    def execute(self) -> None:
-        """
-        Perform the query against the database associated with the provided cursor.
-        """
-        LOG.debug(self.pk_query)
-        self.cursor.execute(str(self.pk_query))
-
-
-class _TableQuery(Query, Generic[_TTable]):
-
-    def __init__(self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable]):
-        super().__init__(cursor, dialect)
-        self.table = table
-
-
-class CreateTableQuery(_TableQuery[Table]):
-    """
-    Representation of a `CREATE TABLE` SQL query.
-    """
-
-    def __init__(self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable]):
-        super().__init__(cursor, dialect, table)
-        self.pk_query = self._pk_query()
-
-    def _pk_query(self):
-        query: CreateQueryBuilder = (
-            self.dialect.query_builder
-            .create_table(self.table.meta.pk_table)
-            .if_not_exists()
-        )
-        cols: List[pypika.Column] = []
-        primary: Optional[pypika.Column] = None
-        for field in self.table.meta.fields.values():
-            type_ = self.dialect.column_type(field)
-            nullable = Nullable.is_nullable(field.__class__)
-            default = None
-            if field.default is Default.TIMESTAMP_NOW:
-                default = self.dialect.datetime_default_now
-            elif not isinstance(field.default, Default):
-                default = field.default
-            col = pypika.Column(field.name, type_, nullable, default)
-            cols.append(col)
-            if self.table.meta.primary is field:
-                primary = col
-        query = query.columns(*cols)
-        if primary:
-            query = query.primary_key(primary)
-        return query
-
-
-class SelectQuery(_TableQuery[_TTable]):
-    """
-    Representation of a `SELECT` SQL query.
-    """
-
-    def __init__(
-        self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable],
-        where: Optional[pypika.Criterion] = None, *refs: _RefSpec,
-    ):
-        super().__init__(cursor, dialect, table)
-        self.where = where
-        self.joins = table.meta.join_refs(*refs)
-        self.pk_query = self._pk_query()
-
-    def _pk_query(self):
-        query: QueryBuilder = (
-            self.dialect.query_builder
-            .from_(self.table.meta.pk_table)
-            .select(*self.table.meta.fields)
-        )
-        for path, pk_foreign, join in self.joins:
-            ref = path[-1]
-            query = query.join(pk_foreign).on(join)
-            cols = (pk_foreign[field] for field in ref.table.meta.fields)
-            query = query.select(*cols)
-        if self.where:
-            query = query.where(self.where)
-        return query
-
-    def _unpack(self, table: Type[_TTableAlt], result: Tuple[Any, ...]) -> Tuple[_TTableAlt, int]:
-        fields = table.meta.fields
-        size = len(fields)
-        row = result[:size]
-        data = dict(zip(fields, row))
-        return (table(**data), size)
-
-    def execute(self) -> SelectQueryResult[_TTable]:
-        """
-        Like `Query.execute`, but yields the results as instances of the table's class.
-        """
-        super().execute()
-        return SelectQueryResult(self.cursor, self.table, self.joins)
-
-
-class SelectOneQuery(SelectQuery[_TTable]):
-    """
-    Modified `SELECT` query to apply `LIMIT 1` and fetch a single result.
-    """
-
-    def _pk_query(self):
-        return super()._pk_query().limit(1)
-
-    def execute(self) -> Optional[_TTable]:
-        """
-        Run `Query.execute` to completion, returning the only result if present, and `None` if not.
-        """
-        return next(super().execute(), None)
-
-
-class InsertQuery(_TableQuery[_TTable]):
-    """
-    Representation of an `INSERT` SQL query.
-    """
-
-    def __init__(
-        self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable], *rows: Iterable[Any],
-        fields: Optional[Iterable["Field[Any]"]] = None,
-    ):
-        super().__init__(cursor, dialect, table)
-        self.rows = rows
-        self.fields = fields or table.meta.fields.values()
-        self.pk_query = self._pk_query()
-
-    def _pk_query(self):
-        cols = (field.name for field in self.fields)
-        return (
-            self.dialect.query_builder
-            .into(self.table.meta.pk_table)
-            .columns(*cols)
-            .insert(*self.rows)
-        )
-
-    def execute(self) -> Optional[int]:
-        """
-        Run `Query.execute` to completion, and return the new primary key value if present.
-
-        As `INSERT` queries do not return any rows, this method instead looks for the last row ID on
-        the cursor, which may or may not be present, and in any case will only be available when
-        inserting a single row.
-        """
-        super().execute()
-        last = getattr(self.cursor, "lastrowid", None)
-        return last if last not in (None, -1) else None
-
-
-class DeleteQuery(_TableQuery[_TTable]):
-    """
-    Representation of a `DELETE` SQL query.
-    """
-
-    def __init__(
-        self, cursor: Cursor, dialect: Type[Dialect], table: Type[_TTable], *insts: Any,
-    ):
-        if not table.meta.primary:
-            raise RuntimeError("Table {} has no primary key".format(table.meta.name))
-        super().__init__(cursor, dialect, table)
-        self.ids = [
-            getattr(inst, table.meta.primary.name) if isinstance(inst, table) else inst
-            for inst in insts
-        ]
-        self.pk_query = (
-            self.dialect.query_builder
-            .from_(table.meta.pk_table)
-            .delete()
-            .where((+table.meta.primary).isin(self.ids))
-        )
-
-
-class DeleteOneQuery(_TableQuery[_TTable]):
-    """
-    Representation of a `DELETE` SQL query that compares all fields, for tables with no primary key.
-    """
-
-    def __init__(self, cursor: Cursor, dialect: Type[Dialect], inst: _TTable):
-        super().__init__(cursor, dialect, inst.__class__)
-        self.inst = inst
-        self.pk_query = self._pk_query()
-
-    def _pk_query(self):
-        query: QueryBuilder = (
-            self.dialect.query_builder
-            .from_(self.table.meta.pk_table)
-            .delete()
-        )
-        for field in self.table.meta.fields.values():
-            query = query.where(+field == getattr(self.inst, field.name))
-        return query
-
-
-class Session:
-    """
-    Wrapper around a DB-API-compatible `Connection`.
-    """
-
-    def __init__(self, conn: Connection, dialect: Type[Dialect] = Dialect):
+    def __init__(self, conn: Union[Connection, AsyncConnection], dialect: Type[Dialect] = Dialect):
         self.conn = conn
         self.dialect = dialect
 
     def __repr__(self):
         return "<{}: {!r} {}>".format(self.__class__.__name__, self.conn, self.dialect.__name__)
 
-    def setup(self, *tables: Type[Table]):
+    def setup(self, *tables: Type[Table]) -> None:
         """
         Perform `CREATE TABLE` queries for the given tables.
         """
-        for table in tables:
-            cur = self.conn.cursor()
-            query = CreateTableQuery(cur, self.dialect, table)
-            query.execute()
+        raise NotImplemented
+
+    def _select_joins(self, table: Type[_TTable], *joins: _RefSpec, auto_join: bool = False):
+        return tuple(table.meta.walk_refs()) if auto_join else joins
+
+    def _select_ref(
+        self, table: Union[Type[_TTable], BoundCollection[_TTable]], where: Optional[pypika.Criterion] = None,
+        *joins: _RefSpec, auto_join: bool = False,
+    ) -> Tuple[Type[_TTable], Optional[pypika.Criterion], Tuple[_RefSpec]]:
+        if isinstance(table, BoundCollection):
+            bind = table
+            table = bind.coll.ref.owner
+            assert bind.coll.ref.field.foreign
+            relate = +bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
+            where = relate & where if where else relate
+        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        return (table, where, joins)
 
     def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
         where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
-    ) -> SelectQueryResult[_TTable]:
+    ) -> _SelectQueryResult[_TTable]:
         """
         Perform a `SELECT` query against the given table or collection.
         """
-        if isinstance(table, BoundCollection):
-            bind = table
-            table = cast(Type[_TTable], table.coll.ref.owner)
-            assert bind.coll.ref.field.foreign
-            relate = +bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
-            where = relate & where if where else relate
-        if auto_join:
-            joins = tuple(table.meta.walk_refs())
-        cur = self.conn.cursor()
-        query = SelectQuery(cur, self.dialect, table, where, *joins)
-        return query.execute()
+        raise NotImplemented
 
     def get(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec,
-        auto_join: bool = False
+        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
         """
         Perform a `SELECT ... LIMIT 1` query against the given table.
 
         Returns the first matching record, or `None` if there are no matches.
         """
-        if auto_join:
-            joins = tuple(table.meta.walk_refs())
-        cur = self.conn.cursor()
-        query = SelectOneQuery(cur, self.dialect, table, where, *joins)
-        return query.execute()
+        raise NotImplemented
 
-    def load(
+    def _load_where(
         self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False,
-    ) -> Optional[_TTable]:
+    ) -> Tuple[Optional[pypika.Criterion], Tuple[_RefSpec]]:
+        assert bind.ref.field.foreign
+        where = +bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
+        joins = self._select_joins(bind.ref.table, *joins, auto_join=auto_join)
+        return (where, joins)
+
+    def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
         """
         Perform a `SELECT ... LIMIT 1` query for a referenced object.
         """
-        assert bind.ref.field.foreign
-        where = +bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
-        if auto_join:
-            joins = tuple(bind.ref.table.meta.walk_refs())
-        cur = self.conn.cursor()
-        query = SelectOneQuery(
-            cur, self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins,
-        )
-        return query.execute()
+        raise NotImplemented
 
-    def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
-        """
-        Perform an `INSERT` query to add a new record to the given table.
-
-        Returns the new instance if the underlying connection provides the last row ID.
-        """
+    def _create_fields(self, table: Type[_TTable], **data: Any) -> Tuple[List[Any], List[Field[Any]]]:
         fields: List[Field[Any]] = []
         row = []
         for name, field in table.meta.fields.items():
@@ -400,33 +106,153 @@ class Session:
                     value = field.default
             row.append(value)
             fields.append(field)
-        cur = self.conn.cursor()
-        query = InsertQuery(cur, self.dialect, table, row, fields=fields)
-        primary = query.execute()
+        return row, fields
+
+    def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+        """
+        Perform an `INSERT` query to add a new record to the given table.
+
+        Returns the new instance if the underlying connection provides the last row ID.
+        """
+        raise NotImplemented
+
+    def _remove_query(self, inst: Table, *insts: Table) -> Union[DeleteOneQuery, DeleteQuery]:
+        table = inst.__class__
+        if table.meta.primary:
+            return DeleteQuery(self.dialect, table, inst, *insts)
+        elif not insts:
+            return DeleteOneQuery(self.dialect, inst)
+        else:
+            raise RuntimeError("Can only delete single instance of table without primary key")
+
+    def remove(self, *insts: Table) -> _MaybeAsync[None]:
+        """
+        Perform a `DELETE` query that removes the given instances.
+        """
+        raise NotImplemented
+
+    def delete(self, table: Type[Table], *ids: Any) -> _MaybeAsync[None]:
+        """
+        Perform a `DELETE` query that removes rows of the given table by primary key value.
+        """
+        raise NotImplemented
+
+
+class Session(_Session):
+    """
+    Wrapper around a DB-API-compatible `Connection`.
+    """
+
+    conn: Connection
+
+    def setup(self, *tables: Type[Table]) -> None:
+        queries = (CreateTableQuery(self.dialect, table) for table in tables)
+        cursor = self.conn.cursor()
+        for query in queries:
+            query.execute(cursor)
+
+    def select(
+        self, table: Union[Type[_TTable], BoundCollection[_TTable]],
+        where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+    ) -> SelectQueryResult[_TTable]:
+        table, where, joins = self._select_ref(table, where, *joins)
+        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        query = SelectQuery(self.dialect, table, where, *joins)
+        cursor = self.conn.cursor()
+        return query.execute(cursor)
+
+    def get(
+        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+    ) -> Optional[_TTable]:
+        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        query = SelectOneQuery(self.dialect, table, where, *joins)
+        cursor = self.conn.cursor()
+        return query.execute(cursor)
+
+    def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
+        where, joins = self._load_where(bind, *joins, auto_join=auto_join)
+        query = SelectOneQuery(self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins)
+        cursor = self.conn.cursor()
+        return query.execute(cursor)
+
+    def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+        row, fields = self._create_fields(table, **data)
+        query = InsertQuery(self.dialect, table, row, fields=fields)
+        cursor = self.conn.cursor()
+        primary = query.execute(cursor)
         if primary is not None and table.meta.primary:
             return self.get(table, +table.meta.primary == primary)
 
     def remove(self, *insts: Table) -> None:
-        """
-        Perform a `DELETE` query that removes the given instances.
-        """
         if not insts:
             return
-        table = insts[0].__class__
-        cur = self.conn.cursor()
-        if table.meta.primary:
-            query = DeleteQuery(cur, self.dialect, table, *insts)
-        elif len(insts) == 1:
-            query = DeleteOneQuery(cur, self.dialect, insts[0])
-        else:
-            raise RuntimeError("Can only delete single instance of table without primary key")
-        query.execute()
+        query = self._remove_query(*insts)
+        cursor = self.conn.cursor()
+        query.execute(cursor)
 
     def delete(self, table: Type[Table], *ids: Any) -> None:
-        """
-        Perform a `DELETE` query that removes rows of the given table by primary key value.
-        """
         if not ids:
             return
-        cur = self.conn.cursor()
-        DeleteQuery(cur, self.dialect, table, *ids).execute()
+        query = DeleteQuery(self.dialect, table, *ids)
+        cursor = self.conn.cursor()
+        return query.execute(cursor)
+
+
+class AsyncSession(_Session):
+    """
+    Wrapper around an asynchronous DB-API-compatible `Connection`.
+    """
+
+    conn: AsyncConnection
+
+    async def setup(self, *tables: Type[Table]) -> None:
+        queries = (CreateTableQuery(self.dialect, table) for table in tables)
+        cursor = await maybe_await(self.conn.cursor)
+        for query in queries:
+            await query.execute(cursor)
+
+    async def select(
+        self, table: Union[Type[_TTable], BoundCollection[_TTable]],
+        where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+    ) -> AsyncSelectQueryResult[_TTable]:
+        table, where, joins = self._select_ref(table, where, *joins)
+        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        query = AsyncSelectQuery(self.dialect, table, where, *joins)
+        cursor = await maybe_await(self.conn.cursor)
+        return await query.execute(cursor)
+
+    async def get(
+        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+    ) -> Optional[_TTable]:
+        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        query = AsyncSelectOneQuery(self.dialect, table, where, *joins)
+        cursor = await maybe_await(self.conn.cursor)
+        return await query.execute(cursor)
+
+    async def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
+        where, joins = self._load_where(bind, *joins, auto_join=auto_join)
+        query = AsyncSelectOneQuery(self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins)
+        cursor = await maybe_await(self.conn.cursor)
+        return await query.execute(cursor)
+
+    async def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+        row, fields = self._create_fields(table, **data)
+        query = AsyncInsertQuery(self.dialect, table, row, fields=fields)
+        cursor = await maybe_await(self.conn.cursor)
+        primary = await query.execute(cursor)
+        if primary is not None and table.meta.primary:
+            return await self.get(table, +table.meta.primary == primary)
+
+    async def remove(self, *insts: Table) -> None:
+        if not insts:
+            return
+        query = self._remove_query(*insts)
+        cursor = await maybe_await(self.conn.cursor)
+        await query.execute(cursor)
+
+    async def delete(self, table: Type[Table], *ids: Any) -> None:
+        if not ids:
+            return
+        query = DeleteQuery(self.dialect, table, *ids)
+        cursor = await maybe_await(self.conn.cursor)
+        return await query.execute(cursor)
