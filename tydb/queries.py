@@ -1,8 +1,8 @@
 from collections.abc import Awaitable
 import logging
 from typing import (
-    Any, AsyncIterator, Callable, Generic, Iterable, Iterator, List, Optional, ParamSpec, Tuple, Type, TypeVar, Union,
-    overload,
+    Any, AsyncIterator, Callable, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar,
+    Union, overload,
 )
 
 import pypika
@@ -20,19 +20,24 @@ _TAny = TypeVar("_TAny")
 _TAnyAlt = TypeVar("_TAnyAlt")
 _TTable = TypeVar("_TTable", bound=Table)
 _TTableAlt = TypeVar("_TTableAlt", bound=Table)
-_P = ParamSpec("_P")
 
 
 LOG = logging.getLogger(__name__)
 
 
-class _AsyncIterProxy(AsyncIterator[_TAny]):
+class _AsyncIterProxy(Iterator[_TAny], AsyncIterator[_TAny]):
 
     def __init__(self, iterator: Iterable[_TAny]):
         self.iter = iter(iterator)
 
+    def __iter__(self):
+        return self
+
     def __aiter__(self):
         return self
+
+    def __next__(self):
+        return next(self.iter)
 
     async def __anext__(self):
         try:
@@ -100,6 +105,17 @@ class _QueryResult(_CommonQueryResult[_TAny]):
         row = self.cursor.fetchone()
         return self._next_after(row)
 
+    def __aiter__(self) -> AsyncIterator[_TAny]:
+        return self._iter(_AsyncIterProxy)
+
+    async def __anext__(self) -> _TAny:
+        self._next_before()
+        row = await maybe_await(self.cursor.fetchone())
+        try:
+            return self._next_after(row)
+        except StopIteration:
+            raise StopAsyncIteration
+
 
 class _AsyncQueryResult(_CommonQueryResult[_TAny]):
 
@@ -112,7 +128,7 @@ class _AsyncQueryResult(_CommonQueryResult[_TAny]):
 
     async def __anext__(self) -> _TAny:
         self._next_before()
-        row = await maybe_await(self.cursor.fetchone)
+        row = await maybe_await(self.cursor.fetchone())
         try:
             return self._next_after(row)
         except StopIteration:
@@ -183,15 +199,13 @@ class AsyncSelectQueryResult(_SelectQueryResult, _AsyncQueryResult[_TTable]):
         _SelectQueryResult.__init__(self, table, joins)
 
 
-class Query:
-    """
-    Representation of an SQL query.
-    """
+class _Query(Generic[_TTable]):
 
     pk_query: Union[QueryBuilder, CreateQueryBuilder]
 
-    def __init__(self, dialect: Type[Dialect]):
+    def __init__(self, dialect: Type[Dialect], table: Type[_TTable]):
         self.dialect = dialect
+        self.table = table
 
     @overload
     def execute(self, cursor: Cursor) -> None: ...
@@ -206,14 +220,7 @@ class Query:
         return cursor.execute(str(self.pk_query))
 
 
-class _TableQuery(Query, Generic[_TTable]):
-
-    def __init__(self, dialect: Type[Dialect], table: Type[_TTable]):
-        super().__init__(dialect)
-        self.table = table
-
-
-class CreateTableQuery(_TableQuery[Table]):
+class CreateTableQuery(_Query[Table]):
     """
     Representation of a `CREATE TABLE` SQL query.
     """
@@ -248,7 +255,7 @@ class CreateTableQuery(_TableQuery[Table]):
         return query
 
 
-class _SelectQuery(_TableQuery[_TTable]):
+class _SelectQuery(_Query[_TTable]):
     """
     Representation of a `SELECT` SQL query.
     """
@@ -301,7 +308,7 @@ class SelectQuery(_SelectQuery[_TTable]):
 class AsyncSelectQuery(_SelectQuery[_TTable]):
 
     async def execute(self, cursor: AsyncCursor) -> AsyncSelectQueryResult[_TTable]:
-        await maybe_await(super().execute, cursor)
+        await maybe_await(super().execute(cursor))
         return AsyncSelectQueryResult(cursor, self.table, self.joins)
 
 
@@ -313,7 +320,7 @@ class _SelectOneQuery(_SelectQuery[_TTable]):
     def _pk_query(self):
         return super()._pk_query().limit(1)
 
-    def execute(self, cursor: Cursor):
+    def execute(self, cursor: Union[Cursor, AsyncCursor]):
         """
         Run `Query.execute` to completion, returning the only result if present, and `None` if not.
         """
@@ -337,7 +344,7 @@ class AsyncSelectOneQuery(AsyncSelectQuery[_TTable], _SelectOneQuery[_TTable]):
         return await anext(result, None)
 
 
-class _InsertQuery(_TableQuery[_TTable]):
+class _InsertQuery(_Query[_TTable]):
     """
     Representation of an `INSERT` SQL query.
     """
@@ -389,28 +396,31 @@ class AsyncInsertQuery(_InsertQuery[_TTable]):
         return self._get_row(cursor)
 
 
-class DeleteQuery(_TableQuery[_TTable]):
+class DeleteQuery(_Query[_TTable]):
     """
     Representation of a `DELETE` SQL query.
     """
 
-    def __init__(self, dialect: Type[Dialect], table: Type[_TTable], *insts: Any):
+    def __init__(self, dialect: Type[Dialect], table: Type[_TTable], *insts: _TTable):
         if not table.meta.primary:
             raise RuntimeError("Table {} has no primary key".format(table.meta.name))
         super().__init__(dialect, table)
-        self.ids = [
-            getattr(inst, table.meta.primary.name) if isinstance(inst, table) else inst
+        self.pk_query = self._pk_query(*insts)
+
+    def _pk_query(self, *insts: _TTable):
+        ids = [
+            getattr(inst, self.table.meta.primary.name) if isinstance(inst, self.table) else inst
             for inst in insts
         ]
-        self.pk_query = (
+        return (
             self.dialect.query_builder
-            .from_(table.meta.pk_table)
+            .from_(self.table.meta.pk_table)
             .delete()
-            .where((+table.meta.primary).isin(self.ids))
+            .where((+self.table.meta.primary).isin(ids))
         )
 
 
-class DeleteOneQuery(_TableQuery[_TTable]):
+class DeleteOneQuery(_Query[_TTable]):
     """
     Representation of a `DELETE` SQL query that compares all fields, for tables with no primary key.
     """

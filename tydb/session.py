@@ -4,14 +4,13 @@ from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union, 
 
 import pypika
 
-from .api import AsyncConnection, AsyncCursor, Connection, Cursor
+from .api import AsyncConnection, Connection
 from .dialects import Dialect
 from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 from .queries import (
-    _InsertQuery, _SelectQuery, _SelectQueryResult,
     AsyncInsertQuery, AsyncSelectQuery, AsyncSelectOneQuery, AsyncSelectQueryResult,
     CreateTableQuery, DeleteQuery, DeleteOneQuery, InsertQuery,
-    SelectOneQuery, SelectQuery, SelectQueryResult,
+    SelectOneQuery, SelectQuery, SelectQueryResult, _SelectQueryResult,
 )
 from .utils import maybe_await
 
@@ -19,7 +18,6 @@ from .utils import maybe_await
 _T = TypeVar("_T")
 _TTable = TypeVar("_TTable", bound=Table)
 _MaybeAsync = Union[_T, Awaitable[_T]]
-_MaybeAsyncCursor = Union[Cursor, AsyncCursor]
 
 
 LOG = logging.getLogger(__name__)
@@ -207,7 +205,7 @@ class AsyncSession(_Session):
 
     async def setup(self, *tables: Type[Table]) -> None:
         queries = (CreateTableQuery(self.dialect, table) for table in tables)
-        cursor = await maybe_await(self.conn.cursor)
+        cursor = await maybe_await(self.conn.cursor())
         for query in queries:
             await query.execute(cursor)
 
@@ -218,7 +216,7 @@ class AsyncSession(_Session):
         table, where, joins = self._select_ref(table, where, *joins)
         joins = self._select_joins(table, *joins, auto_join=auto_join)
         query = AsyncSelectQuery(self.dialect, table, where, *joins)
-        cursor = await maybe_await(self.conn.cursor)
+        cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
 
     async def get(
@@ -226,19 +224,19 @@ class AsyncSession(_Session):
     ) -> Optional[_TTable]:
         joins = self._select_joins(table, *joins, auto_join=auto_join)
         query = AsyncSelectOneQuery(self.dialect, table, where, *joins)
-        cursor = await maybe_await(self.conn.cursor)
+        cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
 
     async def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
         where, joins = self._load_where(bind, *joins, auto_join=auto_join)
         query = AsyncSelectOneQuery(self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins)
-        cursor = await maybe_await(self.conn.cursor)
+        cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
 
     async def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
         row, fields = self._create_fields(table, **data)
         query = AsyncInsertQuery(self.dialect, table, row, fields=fields)
-        cursor = await maybe_await(self.conn.cursor)
+        cursor = await maybe_await(self.conn.cursor())
         primary = await query.execute(cursor)
         if primary is not None and table.meta.primary:
             return await self.get(table, +table.meta.primary == primary)
@@ -247,12 +245,12 @@ class AsyncSession(_Session):
         if not insts:
             return
         query = self._remove_query(*insts)
-        cursor = await maybe_await(self.conn.cursor)
+        cursor = await maybe_await(self.conn.cursor())
         await query.execute(cursor)
 
     async def delete(self, table: Type[Table], *ids: Any) -> None:
         if not ids:
             return
         query = DeleteQuery(self.dialect, table, *ids)
-        cursor = await maybe_await(self.conn.cursor)
+        cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
