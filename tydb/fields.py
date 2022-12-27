@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Any, Generic, Optional, Type, TypeVar, Union, overload
+from typing import Any, Optional, Type, TypeVar, Union, overload
 
-from .models import Field, Reference, Table
+from .models import Default, Field, Reference, Table
 
 
 _TAny = TypeVar("_TAny")
@@ -32,8 +32,17 @@ class BoolField(Field[bool]):
 class StrField(Field[str]):
     """
     Representation of a string or varchar database column.
+
+    Some dialects may require the `size` parameter if using this field as a primary key.
     """
     data_type = str
+
+    def __init__(
+        self, default: Union[str, Default] = Default.NONE,
+        foreign: Optional["Field[Any]"] = None, size: Optional[int] = None,
+    ):
+        super().__init__(default, foreign)
+        self.size = size
 
 
 class DateTimeField(Field[datetime]):

@@ -85,6 +85,8 @@ class MySQLDialect(Dialect):
     def column_type(cls, field: Field[Any]) -> str:
         if isinstance(field, IntField) and field is field.owner.meta.primary:
             return "INTEGER AUTO_INCREMENT"
+        elif isinstance(field, StrField) and field.size:
+            return "VARCHAR({})".format(field.size)
         else:
             return super().column_type(field)
 
