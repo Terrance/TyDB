@@ -9,7 +9,7 @@ from .dialects import Dialect
 from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 from .queries import (
     AsyncInsertQuery, AsyncSelectQuery, AsyncSelectOneQuery, AsyncSelectQueryResult,
-    CreateTableQuery, DeleteQuery, DeleteOneQuery, InsertQuery,
+    CreateTableQuery, DeleteQuery, DeleteOneQuery, DropTableQuery, InsertQuery,
     SelectOneQuery, SelectQuery, SelectQueryResult, _SelectQueryResult,
 )
 from .utils import maybe_await
@@ -35,6 +35,12 @@ class _Session:
     def setup(self, *tables: Type[Table]) -> None:
         """
         Perform `CREATE TABLE` queries for the given tables.
+        """
+        raise NotImplemented
+
+    def destroy(self, *tables: Type[Table]) -> None:
+        """
+        Perform `DROP TABLE` queries for the given tables.
         """
         raise NotImplemented
 
@@ -149,6 +155,12 @@ class Session(_Session):
         for query in queries:
             query.execute(cursor)
 
+    def destroy(self, *tables: Type[Table]) -> None:
+        queries = (DropTableQuery(self.dialect, table) for table in tables)
+        cursor = self.conn.cursor()
+        for query in queries:
+            query.execute(cursor)
+
     def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
         where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
@@ -205,6 +217,12 @@ class AsyncSession(_Session):
 
     async def setup(self, *tables: Type[Table]) -> None:
         queries = (CreateTableQuery(self.dialect, table) for table in tables)
+        cursor = await maybe_await(self.conn.cursor())
+        for query in queries:
+            await query.execute(cursor)
+
+    async def destroy(self, *tables: Type[Table]) -> None:
+        queries = (DropTableQuery(self.dialect, table) for table in tables)
         cursor = await maybe_await(self.conn.cursor())
         for query in queries:
             await query.execute(cursor)

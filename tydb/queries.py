@@ -255,6 +255,23 @@ class CreateTableQuery(_Query[Table]):
         return query
 
 
+class DropTableQuery(_Query[Table]):
+    """
+    Representation of a `DROP TABLE` SQL query.
+    """
+
+    def __init__(self, dialect: Type[Dialect], table: Type[_TTable]):
+        super().__init__(dialect, table)
+        self.pk_query = self._pk_query()
+
+    def _pk_query(self):
+        return (
+            self.dialect.query_builder
+            .drop_table(self.table.meta.pk_table)
+            .if_exists()
+        )
+
+
 class _SelectQuery(_Query[_TTable]):
     """
     Representation of a `SELECT` SQL query.
