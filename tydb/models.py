@@ -162,8 +162,8 @@ class Field(_Descriptor[Table], Generic[_TAny]):
     Representation of a database column.
     """
 
-    data_type: Union[Type[_TAny], Callable[[Any], _TAny]] = staticmethod(lambda x: x)
-    """Class or callable that converts a value to the appropriate Python type."""
+    data_type: Optional[Type[_TAny]] = None
+    """Class that represents the Python type of this field's values."""
 
     def __init__(
         self, default: Union[_TAny, Default] = Default.NONE,
@@ -196,7 +196,10 @@ class Field(_Descriptor[Table], Generic[_TAny]):
         """
         Convert a value from a DB-API type to the appropriate Python type.
         """
-        return self.data_type(value)
+        if self.data_type:
+            return self.data_type(value)
+        else:
+            return value
 
     def encode(self, value: _TAny) -> Any:
         """

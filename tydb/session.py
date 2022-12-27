@@ -256,7 +256,10 @@ class AsyncSession(_Session):
         query = AsyncInsertQuery(self.dialect, table, row, fields=fields)
         cursor = await maybe_await(self.conn.cursor())
         primary = await query.execute(cursor)
-        if primary is not None and table.meta.primary:
+        if (
+            table.meta.primary and table.meta.primary.data_type and
+            isinstance(primary, table.meta.primary.data_type)
+        ):
             return await self.get(table, +table.meta.primary == primary)
 
     async def remove(self, *insts: Table) -> None:
