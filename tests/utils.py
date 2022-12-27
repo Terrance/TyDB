@@ -7,14 +7,24 @@ from typing import Awaitable, Callable, Dict, List, Tuple, Type, Union
 from unittest import TestCase
 
 try:
+    import aiomysql
+except ImportError:
+    aiomysql = None
+
+try:
+    import aiopg
+except ImportError:
+    aiopg = None
+
+try:
     import aiosqlite
 except ImportError:
     aiosqlite = None
 
 try:
-    import MySQLdb
+    import pymysql
 except ImportError:
-    MySQLdb = None
+    pymysql = None
 
 try:
     import psycopg
@@ -36,7 +46,10 @@ def dialect_methods(
 ) -> Tuple[TestMethod, ...]:
     async def run_test(self: TestCase, sess: Union[Session, AsyncSession]):
         await maybe_await(sess.setup(*tables))
-        await fn(self, sess)
+        try:
+            await fn(self, sess)
+        finally:
+            await maybe_await(sess.destroy(*tables))
     def sqlite(self: TestCase):
         with sqlite3.connect(":memory:") as conn:
             asyncio.run(run_test(self, Session(conn, SQLiteDialect)))
@@ -48,16 +61,14 @@ def dialect_methods(
             self.skipTest("No PostgreSQL connection configured (TYDB_PGSQL_CONN)")
         with psycopg.connect(pgsql_conn) as conn:
             asyncio.run(run_test(self, Session(conn, PostgreSQLDialect)))
-            conn.rollback()
     def mysql(self: TestCase):
-        if not MySQLdb:
-            self.skipTest("No MySQL driver installed (MySQLdb)")
+        if not pymysql:
+            self.skipTest("No MySQL driver installed (pymysql)")
         mysql_conn = os.getenv("TYDB_MYSQL_CONN")
         if not mysql_conn:
             self.skipTest("No MySQL connection configured (TYDB_MYSQL_CONN)")
-        with MySQLdb.connect(**json.loads(mysql_conn)) as conn:
+        with pymysql.connect(**json.loads(mysql_conn)) as conn:
             asyncio.run(run_test(self, Session(conn, MySQLDialect)))
-            conn.rollback()
     def sqlite_async(self: TestCase):
         if not aiosqlite:
             self.skipTest("No async SQLite driver installed (aiosqlite)")
@@ -65,7 +76,27 @@ def dialect_methods(
             async with aiosqlite.connect(":memory:") as conn:
                 await run_test(self, AsyncSession(conn, SQLiteDialect))
         asyncio.run(inner())
-    return sqlite, postgresql, mysql, sqlite_async
+    def postgresql_async(self: TestCase):
+        if not aiopg:
+            self.skipTest("No async PostgreSQL driver installed (aiopg)")
+        pgsql_conn = os.getenv("TYDB_PGSQL_CONN")
+        if not pgsql_conn:
+            self.skipTest("No PostgreSQL connection configured (TYDB_PGSQL_CONN)")
+        async def inner():
+            async with aiopg.connect(pgsql_conn) as conn:
+                await run_test(self, AsyncSession(conn, PostgreSQLDialect))
+        asyncio.run(inner())
+    def mysql_async(self: TestCase):
+        if not aiomysql:
+            self.skipTest("No async MySQL driver installed (aiomysql)")
+        mysql_conn = os.getenv("TYDB_MYSQL_CONN")
+        if not mysql_conn:
+            self.skipTest("No MySQL connection configured (TYDB_MYSQL_CONN)")
+        async def inner():
+            async with aiomysql.connect(**json.loads(mysql_conn)) as conn:
+                await run_test(self, AsyncSession(conn, MySQLDialect))
+        asyncio.run(inner())
+    return sqlite, postgresql, mysql, sqlite_async, postgresql_async, mysql_async
 
 
 def with_dialects(cls: Type[TestCase]) -> Type[TestCase]:
