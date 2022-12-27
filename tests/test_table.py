@@ -1,3 +1,4 @@
+from typing import Type
 from unittest import TestCase
 
 import pypika as pk
@@ -10,8 +11,13 @@ class TestTable(TestCase):
     def test_name(self):
         for name, canonical in (("lower", "lower"), ("Title", "title"), ("TwoWords", "two_words")):
             with self.subTest(name=name, canonical=canonical):  
-                Model = type(name, (Table,), {})
+                Model: Type[Table] = type(name, (Table,), {})
                 self.assertEqual(Model.meta.name, canonical)
+
+    def test_name_override(self):
+        class Model(Table, name="override"):
+            pass
+        self.assertEqual(Model.meta.name, "override")
 
     def test_field_primary(self):
         class Model(Table, primary="field"):

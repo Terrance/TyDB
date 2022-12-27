@@ -20,7 +20,7 @@ index = count(int(time.time() * 1000))
 @with_dialects
 class TestIntField(TestCase):
 
-    class Model(Table, primary="field"):
+    class Model(Table, name="model{}".format(next(index)), primary="field"):
         field = IntField()
 
     main_value = 1

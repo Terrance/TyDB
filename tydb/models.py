@@ -43,9 +43,9 @@ class TableMeta(Generic[_TTable]):
     Metadata and helper methods for a `Table` class, accessible via `Table.meta`.
     """
 
-    def __init__(self, table: Type[_TTable], primary: Optional[str] = None):
+    def __init__(self, table: Type[_TTable], name: Optional[str] = None, primary: Optional[str] = None):
         self.table = table
-        self.name = snake_case(table.__name__)
+        self.name = name or snake_case(table.__name__)
         self.pk_table = pypika.Table(self.name)
         self.primary = self.fields[primary] if primary else None
 
@@ -136,8 +136,8 @@ class Table:
 
     meta: TableMeta[Self]
 
-    def __init_subclass__(cls, primary: Optional[str] = None):
-        cls.meta = TableMeta(cls, primary)
+    def __init_subclass__(cls, *, name: Optional[str] = None, primary: Optional[str] = None):
+        cls.meta = TableMeta(cls, name, primary)
 
     def __init__(self, **data: Any):
         for name, field in self.meta.fields.items():
