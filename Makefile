@@ -1,6 +1,6 @@
 module = tydb
 
-unittest_args = -m unittest discover -s test/
+unittest_args = -m unittest discover -s tests/
 
 
 test:
