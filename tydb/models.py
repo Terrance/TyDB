@@ -153,7 +153,16 @@ class Table:
 
     def __init__(self, **data: Any):
         for name, field in self.meta.fields.items():
-            self.__dict__[name] = field.decode(data[name])
+            try:
+                value = data[name]
+            except KeyError:
+                if field.default in (Default.NONE, Default.SERVER):
+                    raise
+                elif field.default is Default.TIMESTAMP_NOW:
+                    value = datetime.now().astimezone()
+                else:
+                    value = field.default
+            self.__dict__[name] = field.decode(value)
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
