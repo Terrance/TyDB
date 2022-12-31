@@ -3,7 +3,7 @@ from inspect import isfunction
 import json
 import os
 import sqlite3
-from typing import Awaitable, Callable, Dict, List, Tuple, Type, Union
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Tuple, Type, Union
 from unittest import TestCase
 
 try:
@@ -39,6 +39,27 @@ from tydb.utils import maybe_await
 
 SessionTestMethod = Callable[[TestCase, Union[AsyncSession, Session]], Awaitable[None]]
 TestMethod = Callable[[TestCase], None]
+
+
+def parametised_methods(fn: Callable[..., None], *matrix: Iterable[Any]) -> Iterable[TestMethod]:
+    for values in matrix:
+        def run(self: TestCase, *args):
+            return fn(self, *args, *values)
+        yield run
+
+
+def parametise(*matrix: Iterable[Any]):
+    def outer(cls: Type[TestCase]):
+        found: Dict[str, Iterable[TestMethod]] = {}
+        for name, member in vars(cls).items():
+            if isfunction(member):
+                found[name] = parametised_methods(member, *matrix)
+        for name, methods in found.items():
+            for i, method in enumerate(methods):
+                setattr(cls, "{}__{}".format(name, i), method)
+            delattr(cls, name)
+        return cls
+    return outer
 
 
 def dialect_methods(
