@@ -2,10 +2,10 @@
 Infrastructure for describing database tables and columns as Python classes.
 """
 
+from copy import copy
+from datetime import datetime
 from enum import Enum, auto
-from typing import (
-    Any, Callable, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload,
-)
+from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload
 from typing_extensions import Self
 
 import pypika
@@ -47,7 +47,19 @@ class TableMeta(Generic[_TTable]):
         self.table = table
         self.name = name or snake_case(table.__name__)
         self.pk_table = pypika.Table(self.name)
-        self.primary = self.fields[primary] if primary else None
+        self.primary = None
+        for cls in table.__bases__:
+            if cls is Table:
+                break
+            elif issubclass(cls, Table):
+                for name, field in cls.meta.fields.items():
+                    field = copy(field)
+                    field.owner = table
+                    setattr(table, name, field)
+                if primary is None and cls.meta.primary:
+                    primary = cls.meta.primary.name
+        if primary:
+            self.primary = self.fields[primary]
 
     def _filter(self, cls: Type[_TAny]) -> Dict[str, _TAny]:
         return {name: value for name, value in vars(self.table).items() if isinstance(value, cls)}

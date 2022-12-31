@@ -42,6 +42,16 @@ class TestTable(TestCase):
         Model.field = Field()
         self.assertEqual(Model.meta.fields, {"field": Model.field})
 
+    def test_field_subclass(self):
+        class Base(Table):
+            lower = Field()
+        class Sub(Base):
+            higher = Field()
+        self.assertEqual(Base.meta.fields, {"lower": Base.lower})
+        self.assertEqual(Sub.meta.fields, {"lower": Sub.lower, "higher": Sub.higher})
+        self.assertEqual(Base.meta.fields["lower"].id, "Base.lower")
+        self.assertEqual(Sub.meta.fields["lower"].id, "Sub.lower")
+
     def test_ref_invalid_foreign_unset(self):
         class Other(Table):
             key = Field()
