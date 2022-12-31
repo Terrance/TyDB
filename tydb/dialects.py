@@ -78,7 +78,7 @@ class MySQLDialect(Dialect):
 
     column_types = {
         **Dialect.column_types,
-        DateTimeField: "DATETIME",
+        DateTimeField: "DATETIME(6)",  # Millisecond precision
     }
 
     @classmethod
