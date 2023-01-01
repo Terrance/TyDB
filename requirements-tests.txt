@@ -1,5 +1,0 @@
-aiomysql
-aiopg
-aiosqlite
-psycopg
-pymysql

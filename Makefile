@@ -7,6 +7,7 @@ test:
 	python $(unittest_args)
 
 coverage:
+	coverage erase
 	coverage run $(unittest_args)
 	coverage html
 

@@ -1,0 +1,12 @@
+# Docs
+pdoc
+
+# Tests
+aiomysql
+aiopg
+aiosqlite
+psycopg
+pymysql
+
+# Test coverage
+coverage
