@@ -1,3 +1,7 @@
+"""
+Partial typing protocols for DB-API 2.0.
+"""
+
 from typing import Any, Awaitable, Iterable, Optional, Tuple, TypeVar, Union
 
 from typing_extensions import Protocol

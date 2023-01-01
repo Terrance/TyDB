@@ -1,3 +1,9 @@
+"""
+Different database servers use different names for field types, or use special syntax for primary
+keys and their types.  Each `Dialect` encapsulates this metadata for one database type; it can also
+be subclassed to add support for alternative databases where the base class is insufficient.
+"""
+
 from typing import Any, Dict, Optional, Type, Union
 
 import pypika
@@ -14,6 +20,7 @@ class Dialect:
     """
 
     query_builder: Type[pypika.Query] = pypika.Query
+    """Specialisation of `pypika.Query`, if one exists for the database type."""
 
     column_types: Dict[Type[Field[Any]], str] = {
         IntField: "INTEGER",
@@ -21,11 +28,18 @@ class Dialect:
         BoolField: "BOOLEAN",
         StrField: "TEXT",
     }
+    """Mapping of `Field` subclasses to the names of their underlying database column types."""
 
     datetime_default_now: Optional[Union[str, pypika.terms.Term]] = None
+    """Database function to retrieve the current timestamp, used by `DateTimeField`."""
 
     @classmethod
     def column_type(cls, field: Field[Any]) -> str:
+        """
+        Retrieve the name of the underlying column type for a given field.  This can be overridden
+        to specialise the behaviour beyond matching field types (e.g. if primary keys require a
+        different type).
+        """
         non_null = Nullable.non_null_type(field.__class__)
         return cls.column_types[non_null]
 

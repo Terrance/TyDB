@@ -1,3 +1,11 @@
+"""
+Fields handle the conversions between native types like `int` or `str` and their encoded forms
+needed in SQL queries.
+
+By default, fields do not accept `None` as a value, and will be declared in the database as `NOT
+NULL` -- the `Nullable` set of fields explicitly removes this restriction.
+"""
+
 from datetime import datetime
 from typing import Any, Optional, Type, TypeVar, Union, overload
 
@@ -48,6 +56,9 @@ class StrField(Field[str]):
 class DateTimeField(Field[datetime]):
     """
     Representation of a timestamp database column.
+
+    Timestamps are expected to be timezone-aware -- naive `datetime` instances will be treated as
+    local time and given the corresponding timezone.
     """
     data_type = datetime
 

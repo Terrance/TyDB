@@ -1,3 +1,7 @@
+"""
+Sessions represent the high-level interface to interact with data in a database.
+"""
+
 from datetime import datetime
 import logging
 from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union, cast
@@ -144,7 +148,7 @@ class _Session:
 
 class Session(_Session):
     """
-    Wrapper around a DB-API-compatible `Connection`.
+    Wrapper around a DB-API `Connection`.
     """
 
     conn: Connection
@@ -210,7 +214,9 @@ class Session(_Session):
 
 class AsyncSession(_Session):
     """
-    Wrapper around an asynchronous DB-API-compatible `Connection`.
+    Wrapper around an asynchronous DB-API-like `Connection`.
+    
+    Each call to a connection method will be `await`ed if it returns an awaitable object.
     """
 
     conn: AsyncConnection

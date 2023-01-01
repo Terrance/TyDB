@@ -66,7 +66,7 @@ class _CommonQueryResult(Generic[_TAny]):
 
     def _next_after(self, row: Optional[Tuple[Any, ...]]) -> _TAny:
         if row:
-            item = self.transform(row)
+            item = self._transform(row)
             self.buffer.append(item)
             return item
         else:
@@ -83,10 +83,7 @@ class _CommonQueryResult(Generic[_TAny]):
             state = "not iterated"
         return "<{}: {}>".format(self.__class__.__name__, state)
 
-    def transform(self, row: Tuple[Any, ...]) -> _TAny:
-        """
-        Convert a result tuple of values into the desired type.
-        """
+    def _transform(self, row: Tuple[Any, ...]) -> _TAny:
         raise NotImplementedError
 
 
@@ -135,23 +132,27 @@ class _AsyncQueryResult(_CommonQueryResult[_TAny]):
 
 
 class _RawQueryResult(_CommonQueryResult[Tuple[Any, ...]]):
-    """
-    Result buffer for a query.
 
-    Can be iterated over to fetch results incrementally from the database host.  Results are
-    buffered, so multiple iterations are supported.
-    """
-
-    def transform(self, row: Tuple[Any, ...]) -> Tuple[Any, ...]:
+    def _transform(self, row: Tuple[Any, ...]) -> Tuple[Any, ...]:
         return row
 
 
 class RawQueryResult(_RawQueryResult, _QueryResult[Tuple[Any, ...]]):
-    pass
+    """
+    Result buffer for a query.
+
+    Can be synchronously (or asynchronously) iterated over to fetch results incrementally from the
+    database host.  Results are buffered, so multiple iterations are supported.
+    """
 
 
 class AsyncRawQueryResult(_RawQueryResult, _AsyncQueryResult[Tuple[Any, ...]]):
-    pass
+    """
+    Asynchronous result buffer for a query.
+
+    Can be asynchronously iterated over to fetch results incrementally from the database host.
+    Results are buffered, so multiple iterations are supported.
+    """
 
 
 class _SelectQueryResult(_CommonQueryResult[_TTable]):
@@ -171,7 +172,7 @@ class _SelectQueryResult(_CommonQueryResult[_TTable]):
         data = dict(zip(fields, row))
         return (table(**data), size)
 
-    def transform(self, row: Tuple[Any, ...]) -> _TTable:
+    def _transform(self, row: Tuple[Any, ...]) -> _TTable:
         final, pos = self._unpack(self.table, row)
         for path, _, _ in self.joins:
             table = path[-1].table
@@ -351,9 +352,6 @@ class SelectOneQuery(SelectQuery[_TTable], _SelectOneQuery[_TTable]):
 
 
 class AsyncSelectOneQuery(AsyncSelectQuery[_TTable], _SelectOneQuery[_TTable]):
-    """
-    Modified `SELECT` query to apply `LIMIT 1` and fetch a single result.
-    """
 
     async def execute(self, cursor: AsyncCursor):
         result = await super().execute(cursor)
