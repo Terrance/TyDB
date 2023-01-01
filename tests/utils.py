@@ -80,7 +80,7 @@ def dialect_methods(
         pgsql_conn = os.getenv("TYDB_PGSQL_CONN")
         if not pgsql_conn:
             self.skipTest("No PostgreSQL connection configured (TYDB_PGSQL_CONN)")
-        with psycopg.connect(pgsql_conn) as conn:
+        with psycopg.connect(**json.loads(pgsql_conn)) as conn:
             asyncio.run(run_test(self, Session(conn, PostgreSQLDialect)))
     def mysql(self: TestCase):
         if not pymysql:
@@ -104,7 +104,7 @@ def dialect_methods(
         if not pgsql_conn:
             self.skipTest("No PostgreSQL connection configured (TYDB_PGSQL_CONN)")
         async def inner():
-            async with aiopg.connect(pgsql_conn) as conn:
+            async with aiopg.connect(**json.loads(pgsql_conn)) as conn:
                 await run_test(self, AsyncSession(conn, PostgreSQLDialect))
         asyncio.run(inner())
     def mysql_async(self: TestCase):
