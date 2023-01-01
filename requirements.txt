@@ -1,2 +1,2 @@
 pypika
-typing_extensions
+typing_extensions>=4.0.1

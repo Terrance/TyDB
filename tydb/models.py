@@ -6,9 +6,9 @@ from copy import copy
 from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload
-from typing_extensions import Self
 
 import pypika
+from typing_extensions import Self
 
 
 _TAny = TypeVar("_TAny")

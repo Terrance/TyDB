@@ -1,5 +1,4 @@
-from types import NotImplementedType
-from typing import Any, Dict, Type, Union
+from typing import Any, Dict, Optional, Type, Union
 
 import pypika
 import pypika.functions
@@ -23,7 +22,7 @@ class Dialect:
         StrField: "TEXT",
     }
 
-    datetime_default_now: Union[str, pypika.terms.Term, NotImplementedType] = NotImplemented
+    datetime_default_now: Optional[Union[str, pypika.terms.Term]] = None
 
     @classmethod
     def column_type(cls, field: Field[Any]) -> str:

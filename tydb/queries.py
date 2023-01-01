@@ -1,8 +1,7 @@
-from collections.abc import Awaitable
 import logging
 from typing import (
-    Any, AsyncIterator, Callable, Generic, Iterable, Iterator, List, Optional, Tuple, Type, TypeVar,
-    Union, overload,
+    Any, Awaitable, AsyncIterator, Callable, Generic, Iterable, Iterator, List, Optional, Tuple,
+    Type, TypeVar, Union, overload,
 )
 
 import pypika
@@ -358,7 +357,10 @@ class AsyncSelectOneQuery(AsyncSelectQuery[_TTable], _SelectOneQuery[_TTable]):
 
     async def execute(self, cursor: AsyncCursor):
         result = await super().execute(cursor)
-        return await anext(result, None)
+        try:
+            return await result.__anext__()  # Built-in anext() requires 3.10
+        except StopAsyncIteration:
+            return None
 
 
 class _InsertQuery(_Query[_TTable]):
