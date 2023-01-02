@@ -278,13 +278,14 @@ class _SelectQuery(_Query[_TTable]):
     def __init__(
         self, dialect: Type[Dialect], table: Type[_TTable],
         where: Optional[pypika.Criterion] = None, *refs: _RefSpec,
+        offset: Optional[int] = None, limit: Optional[int] = None,
     ):
         super().__init__(dialect, table)
         self.where = where
         self.joins = table.meta.join_refs(*refs)
-        self.pk_query = self._pk_query()
+        self.pk_query = self._pk_query(offset, limit)
 
-    def _pk_query(self):
+    def _pk_query(self, offset: Optional[int] = None, limit: Optional[int] = None):
         query: QueryBuilder = (
             self.dialect.query_builder
             .from_(self.table.meta.pk_table)
@@ -297,6 +298,10 @@ class _SelectQuery(_Query[_TTable]):
             query = query.select(*cols)
         if self.where:
             query = query.where(self.where)
+        if offset:
+            query = query.offset(offset)
+        if limit:
+            query = query.limit(limit)
         return query
 
     def _unpack(self, table: Type[_TTableAlt], result: Tuple[Any, ...]) -> Tuple[_TTableAlt, int]:
@@ -325,38 +330,6 @@ class AsyncSelectQuery(_SelectQuery[_TTable]):
     async def execute(self, cursor: AsyncCursor) -> AsyncSelectQueryResult[_TTable]:
         await maybe_await(super().execute(cursor))
         return AsyncSelectQueryResult(cursor, self.table, self.joins)
-
-
-class _SelectOneQuery(_SelectQuery[_TTable]):
-    """
-    Modified `SELECT` query to apply `LIMIT 1` and fetch a single result.
-    """
-
-    def _pk_query(self):
-        return super()._pk_query().limit(1)
-
-    def execute(self, cursor: Union[Cursor, AsyncCursor]):
-        """
-        Run `Query.execute` to completion, returning the only result if present, and `None` if not.
-        """
-        return super().execute(cursor)
-
-
-class SelectOneQuery(SelectQuery[_TTable], _SelectOneQuery[_TTable]):
-
-    def execute(self, cursor: Cursor):
-        result = super().execute(cursor)
-        return next(result, None)
-
-
-class AsyncSelectOneQuery(AsyncSelectQuery[_TTable], _SelectOneQuery[_TTable]):
-
-    async def execute(self, cursor: AsyncCursor):
-        result = await super().execute(cursor)
-        try:
-            return await result.__anext__()  # Built-in anext() requires 3.10
-        except StopAsyncIteration:
-            return None
 
 
 class _InsertQuery(_Query[_TTable]):

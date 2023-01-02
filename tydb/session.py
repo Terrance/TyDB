@@ -12,9 +12,8 @@ from .api import AsyncConnection, Connection
 from .dialects import Dialect
 from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 from .queries import (
-    AsyncInsertQuery, AsyncSelectQuery, AsyncSelectOneQuery, AsyncSelectQueryResult,
-    CreateTableQuery, DeleteQuery, DeleteOneQuery, DropTableQuery, InsertQuery,
-    SelectOneQuery, SelectQuery, SelectQueryResult, _SelectQueryResult,
+    AsyncInsertQuery, AsyncSelectQuery, AsyncSelectQueryResult, CreateTableQuery, DeleteQuery,
+    DeleteOneQuery, DropTableQuery, InsertQuery, SelectQuery, SelectQueryResult, _SelectQueryResult,
 )
 from .utils import maybe_await
 
@@ -73,7 +72,25 @@ class _Session:
         """
         raise NotImplementedError
 
+    def _get_one(self, results: List[_TTable]) -> _TTable:
+        if len(results) == 0:
+            raise LookupError("Expected one record but none found")
+        elif len(results) > 1:
+            raise LookupError("Expected one result but multiple found")
+        else:
+            return results[0]
+
     def get(
+        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+    ) -> _TTable:
+        """
+        Perform a `SELECT ... LIMIT 2` query against the given table.
+
+        Raises `LookupError` if there isn't exactly one record, otherwise returns that record.
+        """
+        raise NotImplementedError
+
+    def first(
         self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
         """
@@ -178,11 +195,21 @@ class Session(_Session):
 
     def get(
         self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+    ) -> _TTable:
+        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        query = SelectQuery(self.dialect, table, where, *joins, limit=2)
+        cursor = self.conn.cursor()
+        results = list(query.execute(cursor))
+        return self._get_one(results)
+
+    def first(
+        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
         joins = self._select_joins(table, *joins, auto_join=auto_join)
-        query = SelectOneQuery(self.dialect, table, where, *joins)
+        query = SelectQuery(self.dialect, table, where, *joins, limit=1)
         cursor = self.conn.cursor()
-        return query.execute(cursor)
+        results = query.execute(cursor)
+        return next(results, None)
 
     def load(
         self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
@@ -190,9 +217,10 @@ class Session(_Session):
         if isinstance(bind, Table):
             return bind
         where, joins = self._load_where(bind, *joins, auto_join=auto_join)
-        query = SelectOneQuery(self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins)
+        query = SelectQuery(self.dialect, bind.ref.table, where, *joins, limit=1)
         cursor = self.conn.cursor()
-        return query.execute(cursor)
+        results = query.execute(cursor)
+        return next(results, None)
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
         row, fields = self._create_fields(table, **data)
@@ -249,11 +277,24 @@ class AsyncSession(_Session):
 
     async def get(
         self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+    ) -> _TTable:
+        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        query = AsyncSelectQuery(self.dialect, table, where, *joins, limit=2)
+        cursor = await maybe_await(self.conn.cursor())
+        results = [result async for result in await query.execute(cursor)]
+        return self._get_one(results)
+
+    async def first(
+        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
         joins = self._select_joins(table, *joins, auto_join=auto_join)
-        query = AsyncSelectOneQuery(self.dialect, table, where, *joins)
+        query = AsyncSelectQuery(self.dialect, table, where, *joins, limit=1)
         cursor = await maybe_await(self.conn.cursor())
-        return await query.execute(cursor)
+        results = await query.execute(cursor)
+        async for result in results:
+            return result
+        else:
+            return None
 
     async def load(
         self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
@@ -261,9 +302,13 @@ class AsyncSession(_Session):
         if isinstance(bind, Table):
             return bind
         where, joins = self._load_where(bind, *joins, auto_join=auto_join)
-        query = AsyncSelectOneQuery(self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins)
+        query = AsyncSelectQuery(self.dialect, bind.ref.table, where, *joins, limit=1)
         cursor = await maybe_await(self.conn.cursor())
-        return await query.execute(cursor)
+        results = await query.execute(cursor)
+        async for result in results:
+            return result
+        else:
+            return None
 
     async def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
         row, fields = self._create_fields(table, **data)

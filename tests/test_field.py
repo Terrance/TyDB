@@ -113,10 +113,10 @@ class TestField(TestCase):
     ):
         await maybe_await(sess.create(model, field=value))
         cond = (+model.field).isnull() if value is None else +model.field == value
-        result = await maybe_await(sess.get(model, cond))
+        result = await maybe_await(sess.first(model, cond))
         self.assertIsNotNone(result)
         self.assertEqual(result, model(id=1, field=value))
-        result = await maybe_await(sess.get(model, +model.field == alt_value))
+        result = await maybe_await(sess.first(model, +model.field == alt_value))
         self.assertIsNone(result)
 
     async def test_field_remove(
