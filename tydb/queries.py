@@ -339,11 +339,11 @@ class _InsertQuery(_Query[_TTable]):
 
     def __init__(
         self, dialect: Type[Dialect], table: Type[_TTable], *rows: Iterable[Any],
-        fields: Optional[Iterable["Field[Any]"]] = None,
+        fields: Iterable["Field[Any]"],
     ):
         super().__init__(dialect, table)
         self.rows = rows
-        self.fields = fields or table.meta.fields.values()
+        self.fields = fields
         self.pk_query = self._pk_query()
 
     def _pk_query(self):

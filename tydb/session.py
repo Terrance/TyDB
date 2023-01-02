@@ -116,7 +116,9 @@ class _Session:
         """
         raise NotImplementedError
 
-    def _create_fields(self, table: Type[_TTable], **data: Any) -> Tuple[List[Any], List[Field[Any]]]:
+    def _create_fields(
+        self, dialect: Type[Dialect], table: Type[_TTable], **data: Any,
+    ) -> Tuple[List[Any], List[Field[Any]]]:
         fields: List[Field[Any]] = []
         row = []
         for name, field in table.meta.fields.items():
@@ -126,7 +128,10 @@ class _Session:
                 if field.default is Default.NONE:
                     raise
                 elif field.default is Default.SERVER:
-                    continue
+                    if dialect.server_default:
+                        value = dialect.server_default
+                    else:
+                        continue  # Omit
                 elif field.default is Default.TIMESTAMP_NOW:
                     value = datetime.now().astimezone()
                 else:
@@ -232,7 +237,7 @@ class Session(_Session):
         return next(results, None)
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
-        row, fields = self._create_fields(table, **data)
+        row, fields = self._create_fields(self.dialect, table, **data)
         query = InsertQuery(self.dialect, table, row, fields=fields)
         cursor = self.conn.cursor()
         primary = query.execute(cursor)
@@ -320,7 +325,7 @@ class AsyncSession(_Session):
             return None
 
     async def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
-        row, fields = self._create_fields(table, **data)
+        row, fields = self._create_fields(self.dialect, table, **data)
         query = AsyncInsertQuery(self.dialect, table, row, fields=fields)
         cursor = await maybe_await(self.conn.cursor())
         primary = await query.execute(cursor)

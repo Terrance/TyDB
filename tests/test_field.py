@@ -17,7 +17,7 @@ NOW = datetime.now().astimezone()
 
 
 class IntModel(Table, primary="field"):
-    field = IntField()
+    field = IntField(default=Default.SERVER)
 
 class FloatModel(Table, primary="field"):
     field = FloatField()
@@ -78,9 +78,11 @@ class TestField(TestCase):
     async def test_field_create(
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
     ):
-        inst = await maybe_await(sess.create(model, field=value))
-        if inst is not None:
-            self.assertEqual(inst, model(id=1, field=value))
+        data = {} if model.field.default is Default.SERVER else {"field": value}
+        inst = await maybe_await(sess.create(model, **data))
+        if inst is None:
+            self.skipTest("Primary key not returned")
+        self.assertEqual(inst, model(id=1, field=value))
 
     async def test_field_select(
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,

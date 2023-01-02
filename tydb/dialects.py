@@ -4,9 +4,10 @@ keys and their types.  Each `Dialect` encapsulates this metadata for one databas
 be subclassed to add support for alternative databases where the base class is insufficient.
 """
 
-from typing import Any, Dict, Optional, Type, Union
+from typing import Any, Dict, Optional, Type
 
 import pypika
+import pypika.dialects
 import pypika.functions
 import pypika.terms
 
@@ -33,6 +34,9 @@ class Dialect:
     datetime_default_now: Optional[pypika.terms.Term] = None
     """Database function to retrieve the current timestamp, used by `DateTimeField`."""
 
+    server_default: Optional[pypika.terms.Term] = pypika.terms.LiteralValue("DEFAULT")
+    """Keyword used to indicate a value should use a column default."""
+
     @classmethod
     def column_type(cls, field: Field[Any]) -> str:
         """
@@ -44,12 +48,35 @@ class Dialect:
         return cls.column_types[non_null]
 
 
+class _SQLiteQuery(pypika.dialects.SQLLiteQuery):
+
+    @classmethod
+    def _builder(cls, **kwargs: Any) -> pypika.dialects.SQLLiteQueryBuilder:
+        return _SQLiteQueryBuilder(**kwargs)
+
+
+class _SQLiteQueryBuilder(pypika.dialects.SQLLiteQueryBuilder):
+
+    QUERY_CLS = _SQLiteQuery
+
+    def _values_sql(self, **kwargs: Any) -> str:
+        # SQLite doesn't support the per-column DEFAULT keyword for values.  As we're omitting
+        # fields, we may end up trying to create a row with all default values and no inputs.
+        # This can be done using DEFAULT VALUES instead of the values array, but only for one row.
+        if len(self._values) == 1 and not self._values[0]:
+            return " DEFAULT VALUES"
+        elif any(not values for values in self._values):
+            raise ValueError("Can't represent multiple rows with no columns")
+        else:
+            return super()._values_sql(**kwargs)
+
+
 class SQLiteDialect(Dialect):
     """
     Metadata for SQLite database connections.
     """
 
-    query_builder = pypika.SQLLiteQuery
+    query_builder = _SQLiteQuery
 
     # SQLite is typeless, so these types act mainly as a description of the expected type.
     column_types = {
@@ -58,6 +85,8 @@ class SQLiteDialect(Dialect):
     }
 
     datetime_default_now = pypika.functions.CurTimestamp()  # UTC
+
+    server_default = None
 
 
 class PostgreSQLDialect(Dialect):
