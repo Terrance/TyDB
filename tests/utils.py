@@ -3,7 +3,7 @@ from inspect import isfunction
 import json
 import os
 import sqlite3
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Tuple, Type, Union
+from typing import Any, Awaitable, Callable, Dict, Iterable, Set, Tuple, Type, Union
 from unittest import TestCase
 
 try:
@@ -120,16 +120,18 @@ def dialect_methods(
     return sqlite, postgresql, mysql, sqlite_async, postgresql_async, mysql_async
 
 
-def with_dialects(cls: Type[TestCase]) -> Type[TestCase]:
-    tables: List[Type[Table]] = []
-    found: Dict[str, Tuple[TestMethod, TestMethod, TestMethod]] = {}
-    for name, member in vars(cls).items():
-        if isinstance(member, type) and issubclass(member, Table):
-            tables.append(member)
-        elif isfunction(member):
-            found[name] = dialect_methods(member, *tables)
-    for name, methods in tuple(found.items()):
-        for method in methods:
-            setattr(cls, "{}__{}".format(name, method.__name__), method)
-        delattr(cls, name)
-    return cls
+def with_dialects(*tables: Type[Table]):
+    def outer(cls: Type[TestCase]):
+        setup: Set[Type[Table]] = set(tables)
+        functions: Dict[str, Tuple[TestMethod, ...]] = {}
+        for name, member in vars(cls).items():
+            if isinstance(member, type) and issubclass(member, Table):
+                setup.add(member)
+            elif isfunction(member):
+                functions[name] = dialect_methods(member, *setup)
+        for name, methods in tuple(functions.items()):
+            for method in methods:
+                setattr(cls, "{}__{}".format(name, method.__name__), method)
+            delattr(cls, name)
+        return cls
+    return outer

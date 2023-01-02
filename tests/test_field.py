@@ -19,18 +19,14 @@ NOW = datetime.now().astimezone()
 class IntModel(Table, primary="field"):
     field = IntField()
 
-
 class FloatModel(Table, primary="field"):
     field = FloatField()
-
 
 class BoolModel(Table, primary="field"):
     field = BoolField()
 
-
 class StrModel(Table, primary="field"):
     field = StrField(size=8)
-
 
 class DateTimeModel(Table, primary="field"):
     field = DateTimeField()
@@ -42,22 +38,17 @@ Model = Union[IntModel, FloatModel, StrModel, BoolModel, DateTimeModel]
 class _NullModelBase(Table, primary="id"):
     id = IntField(default=Default.SERVER)
 
-
 class IntNullModel(_NullModelBase):
     field = Nullable.IntField()
-
 
 class FloatNullModel(_NullModelBase):
     field = Nullable.FloatField()
 
-
 class BoolNullModel(_NullModelBase):
     field = Nullable.BoolField()
 
-
 class StrNullModel(_NullModelBase):
     field = Nullable.StrField()
-
 
 class DateTimeNullModel(_NullModelBase):
     field = Nullable.DateTimeField()
@@ -66,7 +57,10 @@ class DateTimeNullModel(_NullModelBase):
 NullModel = Union[IntNullModel, FloatNullModel, StrNullModel, BoolNullModel, DateTimeNullModel]
 
 
-@with_dialects
+@with_dialects(
+    IntModel, FloatModel, StrModel, BoolModel, DateTimeModel,
+    IntNullModel, FloatNullModel, StrNullModel, BoolNullModel, DateTimeNullModel,
+)
 @parametise(
     (IntModel, 1, 2),
     (FloatModel, 1.9, 2.0),
@@ -80,18 +74,6 @@ NullModel = Union[IntNullModel, FloatNullModel, StrNullModel, BoolNullModel, Dat
     (DateTimeNullModel, None, NOW),
 )
 class TestField(TestCase):
-
-    # Aliases for with_dialects:
-    IntModel = IntModel
-    FloatModel = FloatModel
-    BoolModel = BoolModel
-    StrModel = StrModel
-    DateTimeModel = DateTimeModel
-    IntNullModel = IntNullModel
-    FloatNullModel = FloatNullModel
-    BoolNullModel = BoolNullModel
-    StrNullModel = StrNullModel
-    DateTimeNullModel = DateTimeNullModel
 
     async def test_field_create(
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
