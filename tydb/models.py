@@ -62,7 +62,15 @@ class TableMeta(Generic[_TTable]):
             self.primary = self.fields[primary]
 
     def _filter(self, cls: Type[_TAny]) -> Dict[str, _TAny]:
-        return {name: value for name, value in vars(self.table).items() if isinstance(value, cls)}
+        matches: Dict[str, _TAny] = {}
+        for name in dir(self.table):
+            try:
+                value = getattr(self.table, name)
+            except AttributeError:
+                continue
+            if isinstance(value, cls):
+                matches[name] = value
+        return matches
 
     @property
     def fields(self) -> Dict[str, "Field[Any]"]:
