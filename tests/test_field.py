@@ -63,7 +63,7 @@ NullModel = Union[IntNullModel, FloatNullModel, StrNullModel, BoolNullModel, Dat
 )
 @parametise(
     (IntModel, 1, 2),
-    (FloatModel, 1.9, 2.0),
+    (FloatModel, 1.5, 2.0),
     (BoolModel, True, False),
     (StrModel, "main", "alt"),
     (DateTimeModel, NOW - timedelta(1), NOW),

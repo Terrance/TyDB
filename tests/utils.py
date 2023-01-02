@@ -3,7 +3,7 @@ from inspect import isfunction
 import json
 import os
 import sqlite3
-from typing import Any, Awaitable, Callable, Dict, Iterable, Set, Tuple, Type, Union
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Set, Tuple, Type, Union
 from unittest import TestCase
 
 try:
@@ -41,19 +41,21 @@ SessionTestMethod = Callable[[TestCase, Union[AsyncSession, Session]], Awaitable
 TestMethod = Callable[[TestCase], None]
 
 
-def parametised_methods(fn: Callable[..., None], *matrix: Iterable[Any]) -> Iterable[TestMethod]:
-    for values in matrix:
-        def run(self: TestCase, *args):
-            return fn(self, *args, *values)
-        yield run
+# Separate method to avoid variable reassignment in closure
+def parametised_method(fn: Callable[..., None], *values: Any) -> TestMethod:
+    def run(self: TestCase, *args):
+        return fn(self, *args, *values)
+    return run
 
 
 def parametise(*matrix: Iterable[Any]):
     def outer(cls: Type[TestCase]):
-        found: Dict[str, Iterable[TestMethod]] = {}
+        found: Dict[str, List[TestMethod]] = {}
         for name, member in vars(cls).items():
             if isfunction(member):
-                found[name] = parametised_methods(member, *matrix)
+                found[name] = []
+                for values in matrix:
+                    found[name].append(parametised_method(member, *values))
         for name, methods in found.items():
             for i, method in enumerate(methods):
                 setattr(cls, "{}__{}".format(name, i), method)
