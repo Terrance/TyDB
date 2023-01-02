@@ -105,10 +105,8 @@ class _QueryResult(_CommonQueryResult[_TAny]):
         return self._iter(_AsyncIterProxy)
 
     async def __anext__(self) -> _TAny:
-        self._next_before()
-        row = await maybe_await(self.cursor.fetchone())
         try:
-            return self._next_after(row)
+            return self.__next__()
         except StopIteration:
             raise StopAsyncIteration
 
@@ -185,14 +183,14 @@ class _SelectQueryResult(_CommonQueryResult[_TTable]):
         return final
 
 
-class SelectQueryResult(_SelectQueryResult, _QueryResult[_TTable]):
+class SelectQueryResult(_SelectQueryResult[_TTable], _QueryResult[_TTable]):
     
     def __init__(self, cursor: Cursor, table: Type[_TTable], joins: List[_RefJoinSpec]):
         _QueryResult.__init__(self, cursor)
         _SelectQueryResult.__init__(self, table, joins)
 
 
-class AsyncSelectQueryResult(_SelectQueryResult, _AsyncQueryResult[_TTable]):
+class AsyncSelectQueryResult(_SelectQueryResult[_TTable], _AsyncQueryResult[_TTable]):
     
     def __init__(self, cursor: AsyncCursor, table: Type[_TTable], joins: List[_RefJoinSpec]):
         _AsyncQueryResult.__init__(self, cursor)

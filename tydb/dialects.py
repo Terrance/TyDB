@@ -30,7 +30,7 @@ class Dialect:
     }
     """Mapping of `Field` subclasses to the names of their underlying database column types."""
 
-    datetime_default_now: Optional[Union[str, pypika.terms.Term]] = None
+    datetime_default_now: Optional[pypika.terms.Term] = None
     """Database function to retrieve the current timestamp, used by `DateTimeField`."""
 
     @classmethod

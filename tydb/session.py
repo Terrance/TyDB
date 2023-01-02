@@ -4,7 +4,7 @@ Sessions represent the high-level interface to interact with data in a database.
 
 from datetime import datetime
 import logging
-from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union, cast
+from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union
 
 import pypika
 
@@ -40,13 +40,13 @@ class _Session:
         """
         Perform `CREATE TABLE` queries for the given tables.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def destroy(self, *tables: Type[Table]) -> None:
         """
         Perform `DROP TABLE` queries for the given tables.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def _select_joins(self, table: Type[_TTable], *joins: _RefSpec, auto_join: bool = False):
         return tuple(table.meta.walk_refs()) if auto_join else joins
@@ -71,7 +71,7 @@ class _Session:
         """
         Perform a `SELECT` query against the given table or collection.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def get(
         self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
@@ -81,7 +81,7 @@ class _Session:
 
         Returns the first matching record, or `None` if there are no matches.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def _load_where(
         self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False,
@@ -91,11 +91,13 @@ class _Session:
         joins = self._select_joins(bind.ref.table, *joins, auto_join=auto_join)
         return (where, joins)
 
-    def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
+    def load(
+        self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
+    ) -> Optional[_TTable]:
         """
         Perform a `SELECT ... LIMIT 1` query for a referenced object.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def _create_fields(self, table: Type[_TTable], **data: Any) -> Tuple[List[Any], List[Field[Any]]]:
         fields: List[Field[Any]] = []
@@ -122,7 +124,7 @@ class _Session:
 
         Returns the new instance if the underlying connection provides the last row ID.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def _remove_query(self, inst: Table, *insts: Table) -> Union[DeleteOneQuery, DeleteQuery]:
         table = inst.__class__
@@ -137,13 +139,13 @@ class _Session:
         """
         Perform a `DELETE` query that removes the given instances.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def delete(self, table: Type[Table], *ids: Any) -> _MaybeAsync[None]:
         """
         Perform a `DELETE` query that removes rows of the given table by primary key value.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
 
 class Session(_Session):
@@ -169,8 +171,7 @@ class Session(_Session):
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
         where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> SelectQueryResult[_TTable]:
-        table, where, joins = self._select_ref(table, where, *joins)
-        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        table, where, joins = self._select_ref(table, where, *joins, auto_join=auto_join)
         query = SelectQuery(self.dialect, table, where, *joins)
         cursor = self.conn.cursor()
         return query.execute(cursor)
@@ -183,7 +184,11 @@ class Session(_Session):
         cursor = self.conn.cursor()
         return query.execute(cursor)
 
-    def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
+    def load(
+        self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
+    ) -> Optional[_TTable]:
+        if isinstance(bind, Table):
+            return bind
         where, joins = self._load_where(bind, *joins, auto_join=auto_join)
         query = SelectOneQuery(self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins)
         cursor = self.conn.cursor()
@@ -209,13 +214,13 @@ class Session(_Session):
             return
         query = DeleteQuery(self.dialect, table, *ids)
         cursor = self.conn.cursor()
-        return query.execute(cursor)
+        query.execute(cursor)
 
 
 class AsyncSession(_Session):
     """
     Wrapper around an asynchronous DB-API-like `Connection`.
-    
+
     Each call to a connection method will be `await`ed if it returns an awaitable object.
     """
 
@@ -237,8 +242,7 @@ class AsyncSession(_Session):
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
         where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> AsyncSelectQueryResult[_TTable]:
-        table, where, joins = self._select_ref(table, where, *joins)
-        joins = self._select_joins(table, *joins, auto_join=auto_join)
+        table, where, joins = self._select_ref(table, where, *joins, auto_join=auto_join)
         query = AsyncSelectQuery(self.dialect, table, where, *joins)
         cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
@@ -251,7 +255,11 @@ class AsyncSession(_Session):
         cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
 
-    async def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
+    async def load(
+        self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
+    ) -> Optional[_TTable]:
+        if isinstance(bind, Table):
+            return bind
         where, joins = self._load_where(bind, *joins, auto_join=auto_join)
         query = AsyncSelectOneQuery(self.dialect, cast(Type[_TTable], bind.ref.table), where, *joins)
         cursor = await maybe_await(self.conn.cursor())
@@ -280,4 +288,4 @@ class AsyncSession(_Session):
             return
         query = DeleteQuery(self.dialect, table, *ids)
         cursor = await maybe_await(self.conn.cursor())
-        return await query.execute(cursor)
+        await query.execute(cursor)
