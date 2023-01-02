@@ -135,6 +135,15 @@ class _Session:
             fields.append(field)
         return row, fields
 
+    def _create_primary(self, table: Type[Table], value: Any) -> Optional[pypika.Criterion]:
+        if (
+            table.meta.primary and table.meta.primary.data_type and
+            value and isinstance(value, table.meta.primary.data_type)
+        ):
+            return +table.meta.primary == value
+        else:
+            return None
+
     def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
         """
         Perform an `INSERT` query to add a new record to the given table.
@@ -227,8 +236,8 @@ class Session(_Session):
         query = InsertQuery(self.dialect, table, row, fields=fields)
         cursor = self.conn.cursor()
         primary = query.execute(cursor)
-        if primary is not None and table.meta.primary:
-            return self.get(table, +table.meta.primary == primary)
+        where = self._create_primary(table, primary)
+        return self.get(table, where) if where else None
 
     def remove(self, *insts: Table) -> None:
         if not insts:
@@ -315,11 +324,8 @@ class AsyncSession(_Session):
         query = AsyncInsertQuery(self.dialect, table, row, fields=fields)
         cursor = await maybe_await(self.conn.cursor())
         primary = await query.execute(cursor)
-        if (
-            table.meta.primary and table.meta.primary.data_type and
-            isinstance(primary, table.meta.primary.data_type)
-        ):
-            return await self.get(table, +table.meta.primary == primary)
+        where = self._create_primary(table, primary)
+        return await maybe_await(self.get(table, where)) if where else None
 
     async def remove(self, *insts: Table) -> None:
         if not insts:
