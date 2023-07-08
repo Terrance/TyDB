@@ -4,6 +4,7 @@ from unittest import TestCase
 import pypika as pk
 
 from tydb.models import Field, Reference, Table
+from tydb.utils import resolve_late_descriptors
 
 
 class TestTable(TestCase):
@@ -99,6 +100,8 @@ class TestTable(TestCase):
             loop: Reference["Loop"]
         Loop.loop_key = Field(foreign=Loop.key)
         Loop.loop = Reference(Loop.loop_key, Loop)
+        resolve_late_descriptors(Loop)
+        self.assertEqual(Loop.loop.name, "loop")
         self.assertEqual(Loop.meta.references, {"loop": Loop.loop})
 
     def test_ref_walk(self):
