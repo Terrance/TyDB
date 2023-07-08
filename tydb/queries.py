@@ -6,7 +6,7 @@ from typing import (
 
 import pypika
 from pypika.queries import CreateQueryBuilder, QueryBuilder
-from typing_extensions import Self
+from typing_extensions import Literal, Self
 
 from .api import AsyncCursor, Cursor
 from .dialects import Dialect
@@ -163,10 +163,23 @@ class _SelectQueryResult(_CommonQueryResult[_TTable]):
         self.table = table
         self.joins = joins
 
-    def _unpack(self, table: Type[_TTableAlt], result: Tuple[Any, ...]) -> Tuple[_TTableAlt, int]:
+    @overload
+    def _unpack(
+        self, table: Type[_TTableAlt], result: Any, offset: Literal[0] = 0,
+    ) -> Tuple[_TTableAlt, int]: ...
+    @overload
+    def _unpack(
+        self, table: Type[_TTableAlt], result: Any, offset: int,
+    ) -> Tuple[Optional[_TTableAlt], int]: ...
+
+    def _unpack(
+        self, table: Type[_TTableAlt], result: Tuple[Any, ...], offset: int = 0,
+    ) -> Tuple[Optional[_TTableAlt], int]:
         fields = table.meta.fields
         size = len(fields)
-        row = result[:size]
+        row = result[offset : offset + size]
+        if offset and all(value is None for value in row):
+            return (None, size)
         data = dict(zip(fields, row))
         return (table(**data), size)
 
@@ -174,7 +187,7 @@ class _SelectQueryResult(_CommonQueryResult[_TTable]):
         final, pos = self._unpack(self.table, row)
         for path, _, _ in self.joins:
             table = path[-1].table
-            instance, offset = self._unpack(table, row[pos:])
+            instance, offset = self._unpack(table, row, pos)
             pos += offset
             target = final
             for ref in path[:-1]:
@@ -293,7 +306,7 @@ class _SelectQuery(_Query[_TTable]):
         )
         for path, pk_foreign, join in self.joins:
             ref = path[-1]
-            query = query.join(pk_foreign).on(join)
+            query = query.join(pk_foreign, how=pypika.JoinType.left_outer).on(join)
             cols = (pk_foreign[field] for field in ref.table.meta.fields)
             query = query.select(*cols)
         if self.where:
