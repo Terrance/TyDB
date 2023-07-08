@@ -10,6 +10,7 @@ import pypika
 
 from .api import AsyncConnection, Connection
 from .dialects import Dialect
+from .fields import Nullable
 from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
 from .queries import (
     AsyncInsertQuery, AsyncSelectQuery, AsyncSelectQueryResult, CreateTableQuery, DeleteQuery,
@@ -125,7 +126,9 @@ class _Session:
             try:
                 value = data[name]
             except KeyError:
-                if field.default is Default.NONE:
+                if Nullable.is_nullable(type(field)):
+                    value = None
+                elif field.default is Default.NONE:
                     raise
                 elif field.default is Default.SERVER:
                     if dialect.server_default:
