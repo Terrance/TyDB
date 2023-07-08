@@ -16,7 +16,7 @@ from .queries import (
     AsyncInsertQuery, AsyncSelectQuery, AsyncSelectQueryResult, CreateTableQuery, DeleteQuery,
     DeleteOneQuery, DropTableQuery, InsertQuery, SelectQuery, SelectQueryResult, _SelectQueryResult,
 )
-from .utils import maybe_await
+from .utils import maybe_await, resolve_late_descriptors
 
 
 _T = TypeVar("_T")
@@ -190,6 +190,7 @@ class Session(_Session):
     conn: Connection
 
     def setup(self, *tables: Type[Table]) -> None:
+        resolve_late_descriptors(*tables)
         queries = (CreateTableQuery(self.dialect, table) for table in tables)
         cursor = self.conn.cursor()
         for query in queries:
@@ -272,6 +273,7 @@ class AsyncSession(_Session):
     conn: AsyncConnection
 
     async def setup(self, *tables: Type[Table]) -> None:
+        resolve_late_descriptors(*tables)
         queries = (CreateTableQuery(self.dialect, table) for table in tables)
         cursor = await maybe_await(self.conn.cursor())
         for query in queries:
