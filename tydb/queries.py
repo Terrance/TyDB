@@ -11,7 +11,7 @@ from typing_extensions import Literal, Self
 from .api import AsyncCursor, Cursor
 from .dialects import Dialect
 from .fields import Nullable
-from .models import _RefJoinSpec, _RefSpec, Default, Field, Table
+from .models import _RefJoinSpec, _RefSpec, Default, Expr, Field, Table
 from .utils import maybe_await
 
 
@@ -228,7 +228,19 @@ class _Query(Generic[_TTable]):
         Perform the query against the database associated with the provided cursor.
         """
         LOG.debug(self.pk_query)
-        return cursor.execute(str(self.pk_query))
+        try:
+            return cursor.execute(str(self.pk_query))
+        except Exception as ex:
+            raise RuntimeError("Failed to execute query\n{}".format(self.pk_query)) from ex
+
+
+class _AsyncQuery(_Query[_TTable]):
+    
+    async def execute(self, cursor: Union[Cursor, AsyncCursor]):
+        try:
+            return await maybe_await(super().execute(cursor))
+        except Exception as ex:
+            raise RuntimeError("Failed to execute query\n{}".format(self.pk_query)) from ex
 
 
 class CreateTableQuery(_Query[Table]):
@@ -290,7 +302,7 @@ class _SelectQuery(_Query[_TTable]):
 
     def __init__(
         self, dialect: Type[Dialect], table: Type[_TTable],
-        where: Optional[pypika.Criterion] = None, *refs: _RefSpec,
+        where: Optional[Expr] = None, *refs: _RefSpec,
         offset: Optional[int] = None, limit: Optional[int] = None,
     ):
         super().__init__(dialect, table)
@@ -310,7 +322,7 @@ class _SelectQuery(_Query[_TTable]):
             cols = (pk_foreign[field] for field in ref.table.meta.fields)
             query = query.select(*cols)
         if self.where:
-            query = query.where(self.where)
+            query = query.where(self.where.pk_frag)
         if offset:
             query = query.offset(offset)
         if limit:
@@ -338,10 +350,10 @@ class SelectQuery(_SelectQuery[_TTable]):
         return SelectQueryResult(cursor, self.table, self.joins)
 
 
-class AsyncSelectQuery(_SelectQuery[_TTable]):
+class AsyncSelectQuery(_AsyncQuery[_TTable], _SelectQuery[_TTable]):
 
     async def execute(self, cursor: AsyncCursor) -> AsyncSelectQueryResult[_TTable]:
-        await maybe_await(super().execute(cursor))
+        await super().execute(cursor)
         return AsyncSelectQueryResult(cursor, self.table, self.joins)
 
 
@@ -361,11 +373,15 @@ class _InsertQuery(_Query[_TTable]):
 
     def _pk_query(self):
         cols = (field.name for field in self.fields)
+        rows = [
+            tuple(field.encode(value) for field, value in zip(self.fields, row))
+            for row in self.rows
+        ]
         return (
             self.dialect.query_builder
             .into(self.table.meta.pk_table)
             .columns(*cols)
-            .insert(*self.rows)
+            .insert(*rows)
         )
 
     def _get_row(self, cursor: Union[Cursor, AsyncCursor]) -> Optional[int]:
@@ -390,7 +406,7 @@ class InsertQuery(_InsertQuery[_TTable]):
         return self._get_row(cursor)
 
 
-class AsyncInsertQuery(_InsertQuery[_TTable]):
+class AsyncInsertQuery(_AsyncQuery[_TTable], _InsertQuery[_TTable]):
 
     async def execute(self, cursor: AsyncCursor):
         await super().execute(cursor)
@@ -409,15 +425,18 @@ class DeleteQuery(_Query[_TTable]):
         self.pk_query = self._pk_query(*insts)
 
     def _pk_query(self, *insts: _TTable):
-        ids = [
-            getattr(inst, self.table.meta.primary.name) if isinstance(inst, self.table) else inst
-            for inst in insts
-        ]
+        pk_field = self.table.meta.primary
+        if not pk_field:
+            raise TypeError("Table {} has no primary key".format(self.table.__name__))
+        ids = []
+        for inst in insts:
+            value = getattr(inst, pk_field.name) if isinstance(inst, self.table) else inst
+            ids.append(value)
         return (
             self.dialect.query_builder
             .from_(self.table.meta.pk_table)
             .delete()
-            .where((+self.table.meta.primary).isin(ids))
+            .where((pk_field @ ids).pk_frag)
         )
 
 
@@ -438,5 +457,5 @@ class DeleteOneQuery(_Query[_TTable]):
             .delete()
         )
         for field in self.table.meta.fields.values():
-            query = query.where(+field == getattr(self.inst, field.name))
+            query = query.where(field == field.encode(getattr(self.inst, field.name)))
         return query

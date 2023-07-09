@@ -5,9 +5,11 @@ Infrastructure for describing database tables and columns as Python classes.
 from copy import copy
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union, overload
+import operator
+from typing import Any, Dict, Generic, List, Optional, Sequence, Tuple, Type, TypeVar, Union, overload
 
 import pypika
+import pypika.terms
 from typing_extensions import Self
 
 
@@ -186,7 +188,58 @@ class Table:
         return "{}({})".format(self.__class__.__name__, ", ".join(kwargs))
 
 
-class Field(_Descriptor[Table], Generic[_TAny]):
+class _Term:
+
+    def __and__(self, other: Any):
+        return Expr(operator.and_, self, other)
+
+    def __or__(self, other: Any):
+        return Expr(operator.or_, self, other)
+    
+    def __invert__(self):
+        return Expr(operator.invert, self)
+
+    def __eq__(self, other: Any):
+        if other is None:
+            return Expr(pypika.terms.Term.isnull, self)
+        else:
+            return Expr(operator.eq, self, other)
+
+    def __ne__(self, other: Any):
+        if other is None:
+            return Expr(pypika.terms.Term.isnotnull, self)
+        else:
+            return Expr(operator.ne, self, other)
+
+    def __lt__(self, other: Any):
+        return Expr(operator.lt, self, other)
+
+    def __le__(self, other: Any):
+        return Expr(operator.le, self, other)
+
+    def __gt__(self, other: Any):
+        return Expr(operator.gt, self, other)
+
+    def __ge__(self, other: Any):
+        return Expr(operator.ge, self, other)
+    
+    def __pos__(self):
+        return Expr(operator.pos, self)
+    
+    def __neg__(self):
+        return Expr(operator.neg, self)
+
+    def __matmul__(self, other: Any):
+        return Expr(pypika.terms.Term.isin, self, other)
+
+    def __mul__(self, other: Any):
+        return Expr(pypika.terms.Term.like, self, other)
+
+    def __pow__(self, other: Any):
+        return Expr(pypika.terms.Term.ilike, self, other)
+
+
+class Field(_Descriptor[Table], Generic[_TAny], _Term):
     """
     Representation of a database column.
     """
@@ -202,7 +255,7 @@ class Field(_Descriptor[Table], Generic[_TAny]):
         self.foreign = foreign
 
     @property
-    def _pk_field(self) -> pypika.Field:
+    def pk_field(self) -> pypika.Field:
         return self.owner.meta.pk_table.field(self.name)
 
     @overload
@@ -214,9 +267,6 @@ class Field(_Descriptor[Table], Generic[_TAny]):
         if not obj:
             return self
         return obj.__dict__[self.name]
-
-    def __pos__(self) -> pypika.Criterion:
-        return self._pk_field
 
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.id)
@@ -230,14 +280,55 @@ class Field(_Descriptor[Table], Generic[_TAny]):
         else:
             return value
 
-    def encode(self, value: _TAny) -> Any:
+    def encode(self, value: Any) -> Any:
         """
         Convert a value from a Python type to the appropriate DB-API type.
         """
-        if self.data_type in (int, float, bool):
+        if isinstance(value, pypika.terms.Node):
+            return value
+        elif self.data_type in (int, float, bool):
             return self.data_type(value)
         else:
             return str(value)
+
+
+class Expr(_Term):
+
+    def __init__(self, op, *args):
+        self.op = op
+        fields = [arg for arg in args if isinstance(arg, Field)]
+        if len(fields) == 1:
+            field = fields[0]
+            values = []
+            for arg in args:
+                if isinstance(arg, (Field, pypika.terms.Term, str)):
+                    values.append(arg)
+                elif isinstance(arg, Sequence):
+                    values.append(tuple(field.encode(item) for item in arg))
+                else:
+                    values.append(field.encode(arg))
+            self.args = values
+        else:
+            self.args = args
+    
+    @staticmethod
+    def _encode(obj: Any):
+        if isinstance(obj, Expr):
+            return obj.pk_frag
+        elif isinstance(obj, Field):
+            return obj.pk_field
+        else:
+            return obj
+    
+    @property
+    def pk_frag(self):
+        args = (self._encode(arg) for arg in self.args)
+        return self.op(*args)
+
+    def __repr__(self):
+        return "<{}: {} ({})>".format(
+            self.__class__.__name__, self.op.__name__, ", ".join(repr(arg) for arg in self.args),
+        )
 
 
 class Reference(_Descriptor[Table], Generic[_TTable]):

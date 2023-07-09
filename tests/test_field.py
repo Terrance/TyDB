@@ -96,10 +96,9 @@ class TestField(TestCase):
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
     ):
         await maybe_await(sess.create(model, field=value))
-        cond = (+model.field).isnull() if value is None else +model.field == value
-        result = [inst async for inst in await maybe_await(sess.select(model, cond))]
+        result = [inst async for inst in await maybe_await(sess.select(model, model.field == value))]
         self.assertEqual(len(result), 1)
-        result = [inst async for inst in await maybe_await(sess.select(model, +model.field == alt_value))]
+        result = [inst async for inst in await maybe_await(sess.select(model, model.field == alt_value))]
         self.assertEqual(len(result), 0)
 
     async def test_field_get(
@@ -114,11 +113,10 @@ class TestField(TestCase):
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
     ):
         await maybe_await(sess.create(model, field=value))
-        cond = (+model.field).isnull() if value is None else +model.field == value
-        result = await maybe_await(sess.first(model, cond))
+        result = await maybe_await(sess.first(model, model.field == value))
         self.assertIsNotNone(result)
         self.assertEqual(result, model(id=1, field=value))
-        result = await maybe_await(sess.first(model, +model.field == alt_value))
+        result = await maybe_await(sess.first(model, model.field == alt_value))
         self.assertIsNone(result)
 
     async def test_field_remove(
@@ -126,8 +124,7 @@ class TestField(TestCase):
     ):
         inst = await maybe_await(sess.create(model, field=value))
         if inst is None:
-            cond = (+model.field).isnull() if value is None else +model.field == value
-            inst = await maybe_await(sess.get(model, cond))
+            inst = await maybe_await(sess.get(model, model.field == value))
             if inst is None:
                 self.skipTest("Failed to retrieve instance")
         await maybe_await(sess.remove(inst))

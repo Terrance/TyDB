@@ -11,7 +11,7 @@ import pypika
 from .api import AsyncConnection, Connection
 from .dialects import Dialect
 from .fields import Nullable
-from .models import _RefSpec, BoundCollection, BoundReference, Default, Field, Table
+from .models import _RefSpec, BoundCollection, BoundReference, Default, Expr, Field, Table
 from .queries import (
     AsyncInsertQuery, AsyncSelectQuery, AsyncSelectQueryResult, CreateTableQuery, DeleteQuery,
     DeleteOneQuery, DropTableQuery, InsertQuery, SelectQuery, SelectQueryResult, _SelectQueryResult,
@@ -52,21 +52,21 @@ class _Session:
         return tuple(table.meta.walk_refs()) if auto_join else joins
 
     def _select_ref(
-        self, table: Union[Type[_TTable], BoundCollection[_TTable]], where: Optional[pypika.Criterion] = None,
+        self, table: Union[Type[_TTable], BoundCollection[_TTable]], where: Optional[Expr] = None,
         *joins: _RefSpec, auto_join: bool = False,
-    ) -> Tuple[Type[_TTable], Optional[pypika.Criterion], Tuple[_RefSpec]]:
+    ) -> Tuple[Type[_TTable], Optional[Expr], Tuple[_RefSpec]]:
         if isinstance(table, BoundCollection):
             bind = table
             table = bind.coll.ref.owner
             assert bind.coll.ref.field.foreign
-            relate = +bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
+            relate = bind.coll.ref.field == getattr(bind.inst, bind.coll.ref.field.foreign.name)
             where = relate & where if where else relate
         joins = self._select_joins(table, *joins, auto_join=auto_join)
         return (table, where, joins)
 
     def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
-        where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> _SelectQueryResult[_TTable]:
         """
         Perform a `SELECT` query against the given table or collection.
@@ -82,7 +82,7 @@ class _Session:
             return results[0]
 
     def get(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        self, table: Type[_TTable], where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> _TTable:
         """
         Perform a `SELECT ... LIMIT 2` query against the given table.
@@ -92,7 +92,7 @@ class _Session:
         raise NotImplementedError
 
     def first(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        self, table: Type[_TTable], where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
         """
         Perform a `SELECT ... LIMIT 1` query against the given table.
@@ -103,9 +103,9 @@ class _Session:
 
     def _load_where(
         self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False,
-    ) -> Tuple[Optional[pypika.Criterion], Tuple[_RefSpec]]:
+    ) -> Tuple[Optional[Expr], Tuple[_RefSpec]]:
         assert bind.ref.field.foreign
-        where = +bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
+        where = bind.ref.field.foreign == getattr(bind.inst, bind.ref.field.name)
         joins = self._select_joins(bind.ref.table, *joins, auto_join=auto_join)
         return (where, joins)
 
@@ -143,12 +143,12 @@ class _Session:
             fields.append(field)
         return row, fields
 
-    def _create_primary(self, table: Type[Table], value: Any) -> Optional[pypika.Criterion]:
+    def _create_primary(self, table: Type[Table], value: Any) -> Optional[Expr]:
         if (
             table.meta.primary and table.meta.primary.data_type and
             value and isinstance(value, table.meta.primary.data_type)
         ):
-            return +table.meta.primary == value
+            return table.meta.primary == value
         else:
             return None
 
@@ -204,7 +204,7 @@ class Session(_Session):
 
     def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
-        where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> SelectQueryResult[_TTable]:
         table, where, joins = self._select_ref(table, where, *joins, auto_join=auto_join)
         query = SelectQuery(self.dialect, table, where, *joins)
@@ -212,7 +212,7 @@ class Session(_Session):
         return query.execute(cursor)
 
     def get(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        self, table: Type[_TTable], where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> _TTable:
         joins = self._select_joins(table, *joins, auto_join=auto_join)
         query = SelectQuery(self.dialect, table, where, *joins, limit=2)
@@ -221,7 +221,7 @@ class Session(_Session):
         return self._get_one(results)
 
     def first(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        self, table: Type[_TTable], where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
         joins = self._select_joins(table, *joins, auto_join=auto_join)
         query = SelectQuery(self.dialect, table, where, *joins, limit=1)
@@ -287,7 +287,7 @@ class AsyncSession(_Session):
 
     async def select(
         self, table: Union[Type[_TTable], BoundCollection[_TTable]],
-        where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> AsyncSelectQueryResult[_TTable]:
         table, where, joins = self._select_ref(table, where, *joins, auto_join=auto_join)
         query = AsyncSelectQuery(self.dialect, table, where, *joins)
@@ -295,7 +295,7 @@ class AsyncSession(_Session):
         return await query.execute(cursor)
 
     async def get(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        self, table: Type[_TTable], where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> _TTable:
         joins = self._select_joins(table, *joins, auto_join=auto_join)
         query = AsyncSelectQuery(self.dialect, table, where, *joins, limit=2)
@@ -304,7 +304,7 @@ class AsyncSession(_Session):
         return self._get_one(results)
 
     async def first(
-        self, table: Type[_TTable], where: Optional[pypika.Criterion] = None, *joins: _RefSpec, auto_join: bool = False,
+        self, table: Type[_TTable], where: Optional[Expr] = None, *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
         joins = self._select_joins(table, *joins, auto_join=auto_join)
         query = AsyncSelectQuery(self.dialect, table, where, *joins, limit=1)
