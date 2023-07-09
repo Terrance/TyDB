@@ -223,9 +223,6 @@ class _Term:
     def __ge__(self, other: Any):
         return Expr(operator.ge, self, other)
     
-    def __pos__(self):
-        return Expr(operator.pos, self)
-    
     def __neg__(self):
         return Expr(operator.neg, self)
 
@@ -293,6 +290,12 @@ class Field(_Descriptor[Table], Generic[_TAny], _Term):
 
 
 class Expr(_Term):
+    """
+    Query expression, usable as a `WHERE` clause in supported queries.
+
+    Instances of this class should not be created directly; instead, use Python operators on
+    fields of tables to generate expressions.
+    """
 
     def __init__(self, op, *args):
         self.op = op

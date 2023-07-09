@@ -73,7 +73,7 @@ class DateTimeField(Field[datetime]):
     def encode(self, value: datetime) -> Any:
         if not value.tzinfo:
             value = value.astimezone()
-        return super().encode(value)
+        return super().encode(value.isoformat())
 
 
 class Nullable:
