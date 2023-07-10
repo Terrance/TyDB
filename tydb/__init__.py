@@ -28,7 +28,7 @@ def main():
     sess = Session(conn, SQLiteDialect)
 
     sess.create(Item, name="Test")  # Item(id=1, name='Test')
-    for item in sess.select(Item, +Item.name == "Test"):  # <SelectQueryResult: ...>
+    for item in sess.select(Item, Item.name == "Test"):  # <SelectQueryResult: ...>
         sess.remove(item)
 ```
 
@@ -45,7 +45,21 @@ async def main():
     sess = AsyncSession(conn, SQLiteDialect)
 
     await sess.create(Item, name="Test")  # Item(id=1, name='Test')
-    async for item in await sess.select(Item, +Item.name == "Test"):  # <AsyncSelectQueryResult: ...>
+    async for item in await sess.select(Item, Item.name == "Test"):  # <AsyncSelectQueryResult: ...>
         await  sess.remove(item)
+```
+
+## Expressions
+
+Fields of a model can be used to create expressions, used as `WHERE` clauses in queries:
+
+```python
+>>> Item.name == "Test"
+<Expr: eq (<StrField: Item.name>, 'Test')>
+>>> Item.id @ (1, 2, 3)
+<Expr: isin (<IntField: Item.id>, (1, 2, 3))>
+>>> (Item.desc != None) & (Item.desc ** "%stuff%")
+<Expr: and_ (<Expr: isnotnull (<StrField: Item.desc>)>,
+             <Expr: ilike (<StrField: Item.desc>, '%stuff%')>)>
 ```
 """
