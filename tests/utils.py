@@ -93,6 +93,8 @@ def dialect_methods(
         with pymysql.connect(**json.loads(mysql_conn)) as conn:
             asyncio.run(run_test(self, Session(conn, MySQLDialect)))
     def sqlite_async(self: TestCase):
+        if not os.getenv("TYDB_ASYNC"):
+            self.skipTest("No async tests enabled (TYDB_ASYNC)")
         if not aiosqlite:
             self.skipTest("No async SQLite driver installed (aiosqlite)")
         async def inner():
@@ -100,6 +102,8 @@ def dialect_methods(
                 await run_test(self, AsyncSession(conn, SQLiteDialect))
         asyncio.run(inner())
     def postgresql_async(self: TestCase):
+        if not os.getenv("TYDB_ASYNC"):
+            self.skipTest("No async tests enabled (TYDB_ASYNC)")
         if not aiopg:
             self.skipTest("No async PostgreSQL driver installed (aiopg)")
         pgsql_conn = os.getenv("TYDB_PGSQL_CONN")
@@ -110,6 +114,8 @@ def dialect_methods(
                 await run_test(self, AsyncSession(conn, PostgreSQLDialect))
         asyncio.run(inner())
     def mysql_async(self: TestCase):
+        if not os.getenv("TYDB_ASYNC"):
+            self.skipTest("No async tests enabled (TYDB_ASYNC)")
         if not aiomysql:
             self.skipTest("No async MySQL driver installed (aiomysql)")
         mysql_conn = os.getenv("TYDB_MYSQL_CONN")

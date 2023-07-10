@@ -47,6 +47,12 @@ $ export TYDB_MYSQL_CONN='{"db": "tydb"}'
 $ export TYDB_PGSQL_CONN='{"dbname": "tydb"}'
 ```
 
+Only synchronous session and driver tests are run by default. To enable asynchronous tests too:
+
+```shell
+$ export TYDB_ASYNC=1
+```
+
 The dialect-aware tests currently use the following databases and drivers:
 
 * MySQL
