@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Callable
 from unittest import TestCase
 
 from tydb.fields import BoolField, DateTimeField, FloatField, IntField, StrField
@@ -22,27 +23,27 @@ NOW = datetime.now().astimezone()
 
 
 @parametise(
-    ('"int"=1', Model.int == 1),
-    ('"int"<>1', Model.int != 1),
-    ('"int">1', Model.int > 1),
-    ('"int">=1', Model.int >= 1),
-    ('"int"<1', Model.int < 1),
-    ('"int"<=1', Model.int <= 1),
-    ('-"int"=1', -Model.int == 1),
-    ('"int" IN (1,2)', Model.int @ (1, 2)),
-    ('"bool"=true', Model.bool == True),
-    ('"float"<1.23', Model.float < 1.23),
-    ('"str" LIKE \'%match%\'', Model.str * "%match%"),
-    ('"str" ILIKE \'%match%\'', Model.str ** "%match%"),
-    ('"str" IS NULL', Model.str == None),
-    ('"str" IS NOT NULL', Model.str != None),
-    ('"date"=\'{}\''.format(NOW.isoformat()), Model.date == NOW),
-    ('"int"=1 OR "int"=2', (Model.int == 1) | (Model.int == 2)),
-    ('"int">=1 AND "int"<=2', (Model.int >= 1) & (Model.int <= 2)),
-    ('("int"=1 OR "int"=2) AND "str"=\'A\'', ((Model.int == 1) | (Model.int == 2)) & (Model.str == "A")),
-    ('NOT "int"=1', ~(Model.int == 1)),
+    ('"int"=1', lambda: Model.int == 1),
+    ('"int"<>1', lambda: Model.int != 1),
+    ('"int">1', lambda: Model.int > 1),
+    ('"int">=1', lambda: Model.int >= 1),
+    ('"int"<1', lambda: Model.int < 1),
+    ('"int"<=1', lambda: Model.int <= 1),
+    ('-"int"=1', lambda: -Model.int == 1),
+    ('"int" IN (1,2)', lambda: Model.int @ (1, 2)),
+    ('"bool"=true', lambda: Model.bool == True),
+    ('"float"<1.23', lambda: Model.float < 1.23),
+    ('"str" LIKE \'%match%\'', lambda: Model.str * "%match%"),
+    ('"str" ILIKE \'%match%\'', lambda: Model.str ** "%match%"),
+    ('"str" IS NULL', lambda: Model.str == None),
+    ('"str" IS NOT NULL', lambda: Model.str != None),
+    ('"date"=\'{}\''.format(NOW.isoformat()), lambda: Model.date == NOW),
+    ('"int"=1 OR "int"=2', lambda: (Model.int == 1) | (Model.int == 2)),
+    ('"int">=1 AND "int"<=2', lambda: (Model.int >= 1) & (Model.int <= 2)),
+    ('("int"=1 OR "int"=2) AND "str"=\'A\'', lambda: ((Model.int == 1) | (Model.int == 2)) & (Model.str == "A")),
+    ('NOT "int"=1', lambda: ~(Model.int == 1)),
 )
 class TestExpr(TestCase):
     
-    def test_expr(self, sql: str, expr: Expr):
-        self.assertEqual(str(expr.pk_frag), sql)
+    def test_expr(self, sql: str, expr: Callable[[], Expr]):
+        self.assertEqual(str(expr().pk_frag), sql)
