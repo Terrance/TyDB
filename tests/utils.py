@@ -3,7 +3,7 @@ from inspect import isfunction
 import json
 import os
 import sqlite3
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Set, Tuple, Type, Union
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Set, Tuple, Type, Union
 from unittest import TestCase
 
 try:
@@ -33,11 +33,14 @@ except ImportError:
 
 from tydb.dialects import MySQLDialect, PostgreSQLDialect, SQLiteDialect
 from tydb.models import Table
-from tydb.session import Session, AsyncSession
+from tydb.session import AsyncSession, Session
 from tydb.utils import maybe_await
 
 
-SessionTestMethod = Callable[[TestCase, Union[AsyncSession, Session]], Awaitable[None]]
+AnySession = Union[Session, AsyncSession]
+AnySessionFactory = Callable[[], Union[Awaitable[AnySession], AnySession]]
+
+SessionTestMethod = Callable[[TestCase, AnySession], Awaitable[None]]
 TestMethod = Callable[[TestCase], None]
 
 
@@ -65,42 +68,42 @@ def parametise(*matrix: Iterable[Any]):
 
 
 def dialect_methods(
-    fn: SessionTestMethod, *tables: Type[Table]
+    fn: SessionTestMethod, sessions: Dict[str, AnySession], *tables: Type[Table],
 ) -> Tuple[TestMethod, ...]:
-    async def run_test(self: TestCase, sess: Union[Session, AsyncSession]):
+    async def run_test(self: TestCase, key: str, sess_factory: AnySessionFactory) -> None:
+        try:
+            sess = sessions[key]
+        except KeyError:
+            sess = sessions.setdefault(key, await maybe_await(sess_factory()))
         await maybe_await(sess.setup(*tables))
         try:
             await fn(self, sess)
         finally:
             await maybe_await(sess.destroy(*tables))
     def sqlite(self: TestCase):
-        with sqlite3.connect(":memory:") as conn:
-            asyncio.run(run_test(self, Session(conn, SQLiteDialect)))
+        asyncio.run(run_test(self, "sqlite", lambda: Session(sqlite3.connect(":memory:"), SQLiteDialect)))
     def postgresql(self: TestCase):
         if not psycopg:
             self.skipTest("No PostgreSQL driver installed (psycopg)")
         pgsql_conn = os.getenv("TYDB_PGSQL_CONN")
         if not pgsql_conn:
             self.skipTest("No PostgreSQL connection configured (TYDB_PGSQL_CONN)")
-        with psycopg.connect(**json.loads(pgsql_conn)) as conn:
-            asyncio.run(run_test(self, Session(conn, PostgreSQLDialect)))
+        asyncio.run(run_test(self, "postgresql", lambda: Session(psycopg.connect(**json.loads(pgsql_conn)), PostgreSQLDialect)))
     def mysql(self: TestCase):
         if not pymysql:
             self.skipTest("No MySQL driver installed (pymysql)")
         mysql_conn = os.getenv("TYDB_MYSQL_CONN")
         if not mysql_conn:
             self.skipTest("No MySQL connection configured (TYDB_MYSQL_CONN)")
-        with pymysql.connect(**json.loads(mysql_conn)) as conn:
-            asyncio.run(run_test(self, Session(conn, MySQLDialect)))
+        asyncio.run(run_test(self, "mysql", lambda: Session(pymysql.connect(**json.loads(mysql_conn)), MySQLDialect)))
     def sqlite_async(self: TestCase):
         if not os.getenv("TYDB_ASYNC"):
             self.skipTest("No async tests enabled (TYDB_ASYNC)")
         if not aiosqlite:
             self.skipTest("No async SQLite driver installed (aiosqlite)")
-        async def inner():
-            async with aiosqlite.connect(":memory:") as conn:
-                await run_test(self, AsyncSession(conn, SQLiteDialect))
-        asyncio.run(inner())
+        async def factory():
+            return AsyncSession(await aiosqlite.connect(":memory:"), SQLiteDialect)
+        asyncio.run(run_test(self, "sqlite", factory))
     def postgresql_async(self: TestCase):
         if not os.getenv("TYDB_ASYNC"):
             self.skipTest("No async tests enabled (TYDB_ASYNC)")
@@ -109,10 +112,9 @@ def dialect_methods(
         pgsql_conn = os.getenv("TYDB_PGSQL_CONN")
         if not pgsql_conn:
             self.skipTest("No PostgreSQL connection configured (TYDB_PGSQL_CONN)")
-        async def inner():
-            async with aiopg.connect(**json.loads(pgsql_conn)) as conn:
-                await run_test(self, AsyncSession(conn, PostgreSQLDialect))
-        asyncio.run(inner())
+        async def factory():
+            return AsyncSession(await aiopg.connect(**json.loads(pgsql_conn)), PostgreSQLDialect)
+        asyncio.run(run_test(self, "sqlite", factory))
     def mysql_async(self: TestCase):
         if not os.getenv("TYDB_ASYNC"):
             self.skipTest("No async tests enabled (TYDB_ASYNC)")
@@ -121,10 +123,9 @@ def dialect_methods(
         mysql_conn = os.getenv("TYDB_MYSQL_CONN")
         if not mysql_conn:
             self.skipTest("No MySQL connection configured (TYDB_MYSQL_CONN)")
-        async def inner():
-            async with aiomysql.connect(**json.loads(mysql_conn)) as conn:
-                await run_test(self, AsyncSession(conn, MySQLDialect))
-        asyncio.run(inner())
+        async def factory():
+            return AsyncSession(await aiomysql.connect(**json.loads(mysql_conn)), MySQLDialect)
+        asyncio.run(run_test(self, "sqlite", factory))
     return sqlite, postgresql, mysql, sqlite_async, postgresql_async, mysql_async
 
 
@@ -132,11 +133,19 @@ def with_dialects(*tables: Type[Table]):
     def outer(cls: Type[TestCase]):
         setup: Set[Type[Table]] = set(tables)
         functions: Dict[str, Tuple[TestMethod, ...]] = {}
+        sessions: Dict[str, AnySession] = {}
+        tear_down: Optional[Callable[[], None]] = getattr(cls, "tearDownClass")
+        def tearDownClass(cls):
+            if tear_down:
+                tear_down()
+            for sess in sessions.values():
+                asyncio.run(maybe_await(sess.conn.close()))
+        cls.tearDownClass = classmethod(tearDownClass)
         for name, member in vars(cls).items():
             if isinstance(member, type) and issubclass(member, Table):
                 setup.add(member)
             elif isfunction(member):
-                functions[name] = dialect_methods(member, *setup)
+                functions[name] = dialect_methods(member, sessions, *setup)
         for name, methods in tuple(functions.items()):
             for method in methods:
                 setattr(cls, "{}__{}".format(name, method.__name__), method)
