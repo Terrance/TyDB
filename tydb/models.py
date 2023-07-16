@@ -184,7 +184,14 @@ class Table:
             return self.__dict__ == other.__dict__
 
     def __repr__(self):
-        kwargs = ("{}={!r}".format(key, value) for key, value in self.__dict__.items())
+        kwargs: List[str] = []
+        for name, field in self.meta.fields.items():
+            value = getattr(self, name)
+            if field.default is Default.NONE and value is None:
+                continue
+            elif value == field.default:
+                continue
+            kwargs.append("{}={!r}".format(name, value))
         return "{}({})".format(self.__class__.__name__, ", ".join(kwargs))
 
 

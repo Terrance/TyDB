@@ -224,5 +224,4 @@ class TestTable(TestCase):
             other_key = Field(foreign=Other.key)
             other = Reference(other_key, Other)
         inst = Model(field="value", other_key=1)
-        setattr(inst, "other", Other(key=1))
-        self.assertEqual(repr(inst), "Model(field='value', other_key=1, other=Other(key=1))")
+        self.assertEqual(repr(inst), "Model(field='value', other_key=1)")
