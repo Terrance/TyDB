@@ -139,6 +139,9 @@ class _Session:
                     value = datetime.now().astimezone()
                 else:
                     value = field.default
+            if isinstance(value, Table):
+                assert field.foreign and isinstance(value, field.foreign.owner)
+                value = getattr(value, field.foreign.name)
             row.append(value)
             fields.append(field)
         return row, fields
@@ -146,7 +149,7 @@ class _Session:
     def _create_primary(self, table: Type[Table], value: Any) -> Optional[Expr]:
         if (
             table.meta.primary and table.meta.primary.data_type and
-            value and isinstance(value, table.meta.primary.data_type)
+            value is not None and isinstance(value, table.meta.primary.data_type)
         ):
             return table.meta.primary == value
         else:
