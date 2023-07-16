@@ -192,7 +192,8 @@ class _SelectQueryResult(_CommonQueryResult[_TTable]):
             target = final
             for ref in path[:-1]:
                 target = getattr(target, ref.field.name)
-            setattr(target, path[-1].name, instance)
+            bind = getattr(target, path[-1].name)
+            bind.value = instance
         return final
 
 

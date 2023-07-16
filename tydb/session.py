@@ -4,9 +4,7 @@ Sessions represent the high-level interface to interact with data in a database.
 
 from datetime import datetime
 import logging
-from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union
-
-import pypika
+from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union, overload
 
 from .api import AsyncConnection, Connection
 from .dialects import Dialect
@@ -109,9 +107,26 @@ class _Session:
         joins = self._select_joins(bind.ref.table, *joins, auto_join=auto_join)
         return (where, joins)
 
-    def load(
-        self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
-    ) -> Optional[_TTable]:
+    @overload
+    def _load_one(self, results: Any, bind: Nullable.BoundReference[_TTable]) -> Optional[_TTable]: ...
+    @overload
+    def _load_one(self, results: Any, bind: BoundReference[_TTable]) -> _TTable: ...
+
+    def _load_one(self, results: List[_TTable], bind: BoundReference[_TTable]) -> Optional[_TTable]:
+        if results:
+            bind.value = results[0]
+            return bind.value
+        elif isinstance(bind, Nullable.BoundReference):
+            return None
+        else:
+            raise LookupError("Expected one record but none found")
+
+    @overload
+    def load(self, bind: Nullable.BoundReference[_TTable], *joins: Any, auto_join: Any = ...) -> Optional[_TTable]: ...
+    @overload
+    def load(self, bind: BoundReference[_TTable], *joins: Any, auto_join: Any = ...) -> _TTable: ...
+
+    def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
         """
         Perform a `SELECT ... LIMIT 1` query for a referenced object.
         """
@@ -232,16 +247,21 @@ class Session(_Session):
         results = query.execute(cursor)
         return next(results, None)
 
-    def load(
-        self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
-    ) -> Optional[_TTable]:
-        if isinstance(bind, Table):
-            return bind
+    @overload
+    def load(self, bind: Nullable.BoundReference[_TTable], *joins: Any, auto_join: Any = ...) -> Optional[_TTable]: ...
+    @overload
+    def load(self, bind: BoundReference[_TTable], *joins: Any, auto_join: Any = ...) -> _TTable: ...
+
+    def load(self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False) -> Optional[_TTable]:
+        try:
+            return bind.value
+        except AttributeError:
+            pass
         where, joins = self._load_where(bind, *joins, auto_join=auto_join)
         query = SelectQuery(self.dialect, bind.ref.table, where, *joins, limit=1)
         cursor = self.conn.cursor()
-        results = query.execute(cursor)
-        return next(results, None)
+        results = list(query.execute(cursor))
+        return self._load_one(results, bind)
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
         row, fields = self._create_fields(self.dialect, table, **data)
@@ -318,19 +338,25 @@ class AsyncSession(_Session):
         else:
             return None
 
+    @overload
     async def load(
-        self, bind: Union[_TTable, BoundReference[_TTable]], *joins: _RefSpec, auto_join: bool = False,
+        self, bind: Nullable.BoundReference[_TTable], *joins: Any, auto_join: Any = ...,
+    ) -> Optional[_TTable]: ...
+    @overload
+    async def load(self, bind: BoundReference[_TTable], *joins: Any, auto_join: Any = ...) -> _TTable: ...
+
+    async def load(
+        self, bind: BoundReference[_TTable], *joins: _RefSpec, auto_join: bool = False,
     ) -> Optional[_TTable]:
-        if isinstance(bind, Table):
-            return bind
+        try:
+            return bind.value
+        except AttributeError:
+            pass
         where, joins = self._load_where(bind, *joins, auto_join=auto_join)
         query = AsyncSelectQuery(self.dialect, bind.ref.table, where, *joins, limit=1)
         cursor = await maybe_await(self.conn.cursor())
-        results = await query.execute(cursor)
-        async for result in results:
-            return result
-        else:
-            return None
+        results = [result async for result in await query.execute(cursor)]
+        return self._load_one(results, bind)
 
     async def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
         row, fields = self._create_fields(self.dialect, table, **data)

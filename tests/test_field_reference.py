@@ -40,7 +40,7 @@ class TestFieldReference(TestCase):
         inner = await maybe_await(sess.get(Inner))
         await maybe_await(sess.create(Outer, inner_key=inner.key))
         outer = await maybe_await(sess.get(Outer, None, auto_join=True))
-        self.assertEqual(inner, outer.inner)
+        self.assertEqual(inner, outer.inner.value)
         self.assertEqual(inner, await maybe_await(sess.load(outer.inner)))
 
     async def test_get_reference(self, sess: Union[Session, AsyncSession]):
@@ -66,14 +66,15 @@ class TestFieldReference(TestCase):
     async def test_nullable_get_null(self, sess: Union[Session, AsyncSession]):
         await maybe_await(sess.create(NullOuter))
         outer = await maybe_await(sess.get(NullOuter, None, auto_join=True))
-        self.assertIsNone(outer.inner)
+        self.assertIsNone(outer.inner.value)
+        self.assertIsNone(await maybe_await(sess.load(outer.inner)))
 
     async def test_nullable_get_joined(self, sess: Union[Session, AsyncSession]):
         await maybe_await(sess.create(Inner))
         inner = await maybe_await(sess.get(Inner))
         await maybe_await(sess.create(NullOuter, inner_key=inner.key))
         outer = await maybe_await(sess.get(NullOuter, None, auto_join=True))
-        self.assertEqual(inner, outer.inner)
+        self.assertEqual(inner, outer.inner.value)
         self.assertEqual(inner, await maybe_await(sess.load(outer.inner)))
 
     async def test_nullable_get_reference(self, sess: Union[Session, AsyncSession]):

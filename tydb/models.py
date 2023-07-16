@@ -366,17 +366,16 @@ class Reference(_Descriptor[Table], Generic[_TTable]):
             raise TypeError(msg.format(self.field.id, self.field.owner.__name__))
 
     @overload
-    def __get__(self, obj: Table, objtype: Any = ...) -> Union[_TTable, "BoundReference[_TTable]"]: ...
+    def __get__(self, obj: Table, objtype: Any = ...) -> "BoundReference[_TTable]": ...
     @overload
     def __get__(self, obj: None, objtype: Any = ...) -> "Reference[_TTable]": ...
 
     def __get__(self, obj: Optional[Table], objtype: Optional[Type[Table]] = None):
         if not obj:
             return self
-        try:
-            return obj.__dict__[self.name]
-        except KeyError:
-            return BoundReference(self, obj)
+        bind = BoundReference(self, obj)
+        setattr(obj, self.name, bind)
+        return bind
 
     def __repr__(self):
         return "<{}: {} ({})>".format(self.__class__.__name__, self.id, self.table.__name__)
@@ -387,13 +386,16 @@ class BoundReference(Generic[_TTable]):
     Placeholder reference on a model instance where the related object wasn't fetched.
     """
 
-    def __init__(self, ref: Reference[Table], inst: Table):
+    value: _TTable
+
+    def __init__(self, ref: Reference[_TTable], inst: Table):
         self.ref = ref
         self.inst = inst
 
     def __repr__(self):
-        return "<{}: {} ({}) on {!r}>".format(
-            self.__class__.__name__, self.ref.id, self.ref.owner.__name__, self.inst,
+        return "<{}: {} ({}) on {!r}{}>".format(
+            self.__class__.__name__, self.ref.id, self.ref.table.__name__, self.inst,
+            ": {!r}".format(self.value) if hasattr(self, "value") else ", not fetched",
         )
 
 

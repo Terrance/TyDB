@@ -9,7 +9,7 @@ NULL` -- the `Nullable` set of fields explicitly removes this restriction.
 from datetime import datetime
 from typing import Any, Optional, Type, TypeVar, Union, overload
 
-from .models import Default, Field, Reference, Table
+from .models import BoundReference, Default, Field, Reference, Table
 
 
 _TAny = TypeVar("_TAny")
@@ -134,9 +134,16 @@ class Nullable:
     class Reference(_Nullable, Reference[_TTable]):
 
         @overload
-        def __get__(self, obj: Table, objtype: Any = ...) -> Optional[_TTable]: ...
+        def __get__(self, obj: Table, objtype: Any = ...) -> "Nullable.BoundReference[_TTable]": ...
         @overload
-        def __get__(self, obj: None, objtype: Any = ...) -> "Reference[_TTable]": ...
+        def __get__(self, obj: None, objtype: Any = ...) -> "Nullable.Reference[_TTable]": ...
 
         def __get__(self, obj: Optional[Table], objtype: Optional[Type[Table]] = None):
             return super().__get__(obj, objtype)
+
+    class BoundReference(_Nullable, BoundReference[_TTable]):
+        
+        value: Optional[_TTable]
+
+        def __set__(self, obj: Table, value: Optional[_TTable]):
+            self.value = value
