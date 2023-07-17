@@ -22,6 +22,12 @@ class Model(Table, primary="int"):
 NOW = datetime.now().astimezone()
 
 
+class TestExpr(TestCase):
+
+    def test_repr(self):
+        self.assertEqual(Model.str == "value", "<Expr: eq (<StrField: Model.str>, 'value')")
+
+
 @parametise(
     ('"int"=1', lambda: Model.int == 1),
     ('"int"<>1', lambda: Model.int != 1),
@@ -43,7 +49,7 @@ NOW = datetime.now().astimezone()
     ('("int"=1 OR "int"=2) AND "str"=\'A\'', lambda: ((Model.int == 1) | (Model.int == 2)) & (Model.str == "A")),
     ('NOT "int"=1', lambda: ~(Model.int == 1)),
 )
-class TestExpr(TestCase):
+class TestExprParams(TestCase):
     
     def test_expr(self, sql: str, expr: Callable[[], Expr]):
         self.assertEqual(str(expr().pk_frag), sql)

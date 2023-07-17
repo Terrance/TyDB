@@ -3,7 +3,7 @@ from unittest import TestCase
 
 import pypika as pk
 
-from tydb.models import Field, Reference, Table
+from tydb.models import Default, Field, Reference, Table
 from tydb.utils import resolve_late_descriptors
 
 
@@ -220,8 +220,11 @@ class TestTable(TestCase):
         class Other(Table):
             key = Field()
         class Model(Table):
-            field = Field()
+            field = Field(default="default")
             other_key = Field(foreign=Other.key)
             other = Reference(other_key, Other)
-        inst = Model(field="value", other_key=1)
+            default = Field(default=0)
+            default_omit = Field(default=0)
+            nullable = Field()
+        inst = Model(field="value", other_key=1, default=0, nullable=None)
         self.assertEqual(repr(inst), "Model(field='value', other_key=1)")

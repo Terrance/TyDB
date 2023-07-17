@@ -21,15 +21,12 @@ class Inner(Table, primary="key"):
 class Outer(Table, primary="key"):
     key = IntField(default=Default.SERVER)
     inner_key = IntField(foreign=Inner.key)
-    inner = Reference(inner_key, Inner)
+    inner = Reference(inner_key, Inner, backref="outers")
 
 class NullOuter(Table, primary="key"):
     key = IntField(default=Default.SERVER)
     inner_key = Nullable.IntField(foreign=Inner.key)
-    inner = Nullable.Reference(inner_key, Inner)
-
-Inner.outers = Collection(Outer.inner)
-Inner.null_outers = Collection(NullOuter.inner)
+    inner = Nullable.Reference(inner_key, Inner, backref="null_outers")
 
 
 @with_dialects(Inner, Outer, NullOuter)
