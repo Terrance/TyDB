@@ -144,6 +144,3 @@ class Nullable:
     class BoundReference(_Nullable, BoundReference[_TTable]):
         
         value: Optional[_TTable]
-
-        def __set__(self, obj: Table, value: Optional[_TTable]):
-            self.value = value

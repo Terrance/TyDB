@@ -290,7 +290,7 @@ class Field(_Descriptor[Table], Generic[_TAny], _Term):
         """
         if isinstance(value, pypika.terms.Node):
             return value
-        elif self.data_type in (int, float, bool):
+        elif self.data_type and issubclass(self.data_type, (int, float, bool)):
             return self.data_type(value)
         else:
             return str(value)
