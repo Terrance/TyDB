@@ -82,6 +82,14 @@ class TestField(TestCase):
         key = await maybe_await(sess.create(model, **data))
         self.assertEqual(key, 1)
 
+    async def test_field_bulk_create(
+        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
+    ):
+        await maybe_await(sess.bulk_create(model, ["field"], [value], [alt_value]))
+        result = await maybe_await(sess.select(model))
+        insts = [item async for item in result]
+        self.assertEqual(insts, [model(id=1, field=value), model(id=2, field=alt_value)])
+
     async def test_field_select(
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
     ):

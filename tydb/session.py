@@ -4,7 +4,7 @@ Sessions represent the high-level interface to interact with data in a database.
 
 from datetime import datetime
 import logging
-from typing import Any, Awaitable, List, Optional, Tuple, Type, TypeVar, Union, overload
+from typing import Any, Awaitable, List, Optional, Sequence, Tuple, Type, TypeVar, Union, overload
 
 from .api import AsyncConnection, Connection
 from .dialects import Dialect
@@ -23,6 +23,10 @@ _MaybeAsync = Union[_T, Awaitable[_T]]
 
 
 LOG = logging.getLogger(__name__)
+
+
+class _OmitValue(Exception):
+    pass
 
 
 class _Session:
@@ -131,6 +135,26 @@ class _Session:
         Perform a `SELECT ... LIMIT 1` query for a referenced object.
         """
         raise NotImplementedError
+    
+    def _create_value(self, field: Field, value: Any, dialect: Type[Dialect]):
+        if value is None:
+            if Nullable.is_nullable(type(field)):
+                value = None
+            elif field.default is Default.NONE:
+                raise KeyError(field.name)
+            elif field.default is Default.SERVER:
+                if dialect.server_default:
+                    value = dialect.server_default
+                else:
+                    raise _OmitValue
+            elif field.default is Default.TIMESTAMP_NOW:
+                value = datetime.now().astimezone()
+            else:
+                value = field.default
+        if isinstance(value, Table):
+            assert field.foreign and isinstance(value, field.foreign.owner)
+            value = getattr(value, field.foreign.name)
+        return value
 
     def _create_fields(
         self, dialect: Type[Dialect], table: Type[_TTable], **data: Any,
@@ -139,33 +163,41 @@ class _Session:
         row = []
         for name, field in table.meta.fields.items():
             try:
-                value = data[name]
-            except KeyError:
-                if Nullable.is_nullable(type(field)):
-                    value = None
-                elif field.default is Default.NONE:
-                    raise
-                elif field.default is Default.SERVER:
-                    if dialect.server_default:
-                        value = dialect.server_default
-                    else:
-                        continue  # Omit
-                elif field.default is Default.TIMESTAMP_NOW:
-                    value = datetime.now().astimezone()
-                else:
-                    value = field.default
-            if isinstance(value, Table):
-                assert field.foreign and isinstance(value, field.foreign.owner)
-                value = getattr(value, field.foreign.name)
+                value = self._create_value(field, data.get(name), self.dialect)
+            except _OmitValue:
+                continue
             row.append(value)
             fields.append(field)
         return row, fields
+
+    def _bulk_create_fields(
+        self, dialect: Type[Dialect], table: Type[_TTable], cols: Sequence[str], *datas: Sequence[Any],
+    ) -> Tuple[List[List[Any]], List[Field[Any]]]:
+        field_map = table.meta.fields
+        fields: List[Field[Any]] = [field_map[col] for col in cols]
+        rows: List[List[str]] = []
+        for data in datas:
+            row = []
+            for field, value in zip(fields, data):
+                try:
+                    value = self._create_value(field, value, self.dialect)
+                except _OmitValue:
+                    raise RuntimeError("Can't omit values during bulk insert")
+                row.append(value)
+            rows.append(row)
+        return rows, fields
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[int]:
         """
         Perform an `INSERT` query to add a new record to the given table.
 
         Returns the record's primary key if the underlying connection provides it (integers only).
+        """
+        raise NotImplementedError
+
+    def bulk_create(self, table: Type[_TTable], cols: Sequence[str], *data: Sequence[Any]) -> None:
+        """
+        Perform a bulk `INSERT` query to add multiple records to the given table.
         """
         raise NotImplementedError
 
@@ -260,6 +292,12 @@ class Session(_Session):
         cursor = self.conn.cursor()
         return query.execute(cursor)
 
+    def bulk_create(self, table: Type[_TTable], cols: Sequence[str], *data: Sequence[Any]) -> None:
+        rows, fields = self._bulk_create_fields(self.dialect, table, cols, *data)
+        query = InsertQuery(self.dialect, table, *rows, fields=fields)
+        cursor = self.conn.cursor()
+        query.execute(cursor)
+
     def remove(self, *insts: Table) -> None:
         if not insts:
             return
@@ -352,6 +390,12 @@ class AsyncSession(_Session):
         query = AsyncInsertQuery(self.dialect, table, row, fields=fields)
         cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
+
+    async def bulk_create(self, table: Type[_TTable], cols: Sequence[str], *data: Sequence[Any]) -> None:
+        rows, fields = self._bulk_create_fields(self.dialect, table, cols, *data)
+        query = AsyncInsertQuery(self.dialect, table, *rows, fields=fields)
+        cursor = await maybe_await(self.conn.cursor())
+        await query.execute(cursor)
 
     async def remove(self, *insts: Table) -> None:
         if not insts:
