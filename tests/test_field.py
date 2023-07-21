@@ -79,9 +79,8 @@ class TestField(TestCase):
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
     ):
         data = {} if model.field.default is Default.SERVER else {"field": value}
-        inst = await maybe_await(sess.create(model, **data))
-        if inst is not None:
-            self.assertEqual(inst, model(id=1, field=value))
+        key = await maybe_await(sess.create(model, **data))
+        self.assertEqual(key, 1)
 
     async def test_field_select(
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
@@ -121,9 +120,8 @@ class TestField(TestCase):
     async def test_field_remove(
         self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
     ):
-        inst = await maybe_await(sess.create(model, field=value))
-        if inst is None:
-            inst = await maybe_await(sess.get(model, model.field == value))
+        await maybe_await(sess.create(model, field=value))
+        inst = await maybe_await(sess.get(model, model.field == value))
         await maybe_await(sess.remove(inst))
         result = [inst async for inst in await maybe_await(sess.select(model))]
         self.assertEqual(len(result), 0)

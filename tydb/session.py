@@ -161,20 +161,11 @@ class _Session:
             fields.append(field)
         return row, fields
 
-    def _create_primary(self, table: Type[Table], value: Any) -> Optional[Expr]:
-        if (
-            table.meta.primary and table.meta.primary.data_type and
-            value is not None and isinstance(value, table.meta.primary.data_type)
-        ):
-            return table.meta.primary == value
-        else:
-            return None
-
-    def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+    def create(self, table: Type[_TTable], **data: Any) -> Optional[int]:
         """
         Perform an `INSERT` query to add a new record to the given table.
 
-        Returns the new instance if the underlying connection provides the last row ID.
+        Returns the record's primary key if the underlying connection provides it (integers only).
         """
         raise NotImplementedError
 
@@ -263,13 +254,11 @@ class Session(_Session):
         results = list(query.execute(cursor))
         return self._load_one(results, bind)
 
-    def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+    def create(self, table: Type[_TTable], **data: Any) -> Optional[int]:
         row, fields = self._create_fields(self.dialect, table, **data)
         query = InsertQuery(self.dialect, table, row, fields=fields)
         cursor = self.conn.cursor()
-        primary = query.execute(cursor)
-        where = self._create_primary(table, primary)
-        return self.get(table, where) if where else None
+        return query.execute(cursor)
 
     def remove(self, *insts: Table) -> None:
         if not insts:
@@ -358,13 +347,11 @@ class AsyncSession(_Session):
         results = [result async for result in await query.execute(cursor)]
         return self._load_one(results, bind)
 
-    async def create(self, table: Type[_TTable], **data: Any) -> Optional[_TTable]:
+    async def create(self, table: Type[_TTable], **data: Any) -> Optional[int]:
         row, fields = self._create_fields(self.dialect, table, **data)
         query = AsyncInsertQuery(self.dialect, table, row, fields=fields)
         cursor = await maybe_await(self.conn.cursor())
-        primary = await query.execute(cursor)
-        where = self._create_primary(table, primary)
-        return await maybe_await(self.get(table, where)) if where else None
+        return await query.execute(cursor)
 
     async def remove(self, *insts: Table) -> None:
         if not insts:

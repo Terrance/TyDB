@@ -395,7 +395,7 @@ class _InsertQuery(_Query[_TTable]):
 
         As `INSERT` queries do not return any rows, this method instead looks for the last row ID on
         the cursor, which may or may not be present, and in any case will only be available when
-        inserting a single row.
+        inserting a single row with an integer primary key field.
         """
         return super().execute(cursor)
 
