@@ -4,7 +4,9 @@ Sessions represent the high-level interface to interact with data in a database.
 
 from datetime import datetime
 import logging
-from typing import Any, Awaitable, List, Optional, Sequence, Tuple, Type, TypeVar, Union, overload
+from typing import (
+    Any, Awaitable, Generic, List, Optional, Sequence, Tuple, Type, TypeVar, Union, overload,
+)
 
 from .api import AsyncConnection, Connection
 from .dialects import Dialect
@@ -18,6 +20,7 @@ from .utils import maybe_await, resolve_late_descriptors
 
 
 _T = TypeVar("_T")
+_TConnection = TypeVar("_TConnection", Connection, AsyncConnection)
 _TTable = TypeVar("_TTable", bound=Table)
 _MaybeAsync = Union[_T, Awaitable[_T]]
 
@@ -29,9 +32,9 @@ class _OmitValue(Exception):
     pass
 
 
-class _Session:
+class _Session(Generic[_TConnection]):
 
-    def __init__(self, conn: Union[Connection, AsyncConnection], dialect: Type[Dialect] = Dialect):
+    def __init__(self, conn: _TConnection, dialect: Type[Dialect] = Dialect):
         self.conn = conn
         self.dialect = dialect
 
@@ -236,12 +239,10 @@ class _Session:
         raise NotImplementedError
 
 
-class Session(_Session):
+class Session(_Session[Connection]):
     """
     Wrapper around a DB-API `Connection`.
     """
-
-    conn: Connection
 
     def setup(self, *tables: Type[Table]) -> None:
         resolve_late_descriptors(*tables)
@@ -326,14 +327,12 @@ class Session(_Session):
         query.execute(cursor)
 
 
-class AsyncSession(_Session):
+class AsyncSession(_Session[AsyncConnection]):
     """
     Wrapper around an asynchronous DB-API-like `Connection`.
 
     Each call to a connection method will be `await`ed if it returns an awaitable object.
     """
-
-    conn: AsyncConnection
 
     async def setup(self, *tables: Type[Table]) -> None:
         resolve_late_descriptors(*tables)
