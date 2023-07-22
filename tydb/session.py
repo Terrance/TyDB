@@ -171,11 +171,14 @@ class _Session:
         return row, fields
 
     def _bulk_create_fields(
-        self, dialect: Type[Dialect], table: Type[_TTable], cols: Sequence[str], *datas: Sequence[Any],
-    ) -> Tuple[List[List[Any]], List[Field[Any]]]:
-        field_map = table.meta.fields
-        fields: List[Field[Any]] = [field_map[col] for col in cols]
-        rows: List[List[str]] = []
+        self, dialect: Type[Dialect], fields: Sequence[Field], *datas: Sequence[Any],
+    ) -> Tuple[Type[Table], List[List[Any]]]:
+        if not fields:
+            raise IndexError("At least one field required")
+        table = fields[0].owner
+        if any(field.owner is not table for field in fields[1:]):
+            raise RuntimeError("All fields must be on the same table")
+        rows: List[List[Any]] = []
         for data in datas:
             row = []
             for field, value in zip(fields, data):
@@ -185,7 +188,7 @@ class _Session:
                     raise RuntimeError("Can't omit values during bulk insert")
                 row.append(value)
             rows.append(row)
-        return rows, fields
+        return table, rows
 
     def create(self, table: Type[_TTable], **data: Any) -> Optional[int]:
         """
@@ -195,9 +198,19 @@ class _Session:
         """
         raise NotImplementedError
 
-    def bulk_create(self, table: Type[_TTable], cols: Sequence[str], *data: Sequence[Any]) -> None:
+    def bulk_create(self, fields: Sequence[Field], *data: Sequence[Any]) -> None:
         """
         Perform a bulk `INSERT` query to add multiple records to the given table.
+
+        Accepts a CSV-style input of sequences, where the first sequence holds the field names and
+        the each subsequent one has the values for a single record. 
+
+        ```python
+        sess.bulk_create(
+            (Model.name, Model.number),
+            ("First", 1), ("Second", 2), ...
+        )
+        ```
         """
         raise NotImplementedError
 
@@ -292,8 +305,8 @@ class Session(_Session):
         cursor = self.conn.cursor()
         return query.execute(cursor)
 
-    def bulk_create(self, table: Type[_TTable], cols: Sequence[str], *data: Sequence[Any]) -> None:
-        rows, fields = self._bulk_create_fields(self.dialect, table, cols, *data)
+    def bulk_create(self, fields: Sequence[Field], *data: Sequence[Any]) -> None:
+        table, rows = self._bulk_create_fields(self.dialect, fields, *data)
         query = InsertQuery(self.dialect, table, *rows, fields=fields)
         cursor = self.conn.cursor()
         query.execute(cursor)
@@ -391,8 +404,8 @@ class AsyncSession(_Session):
         cursor = await maybe_await(self.conn.cursor())
         return await query.execute(cursor)
 
-    async def bulk_create(self, table: Type[_TTable], cols: Sequence[str], *data: Sequence[Any]) -> None:
-        rows, fields = self._bulk_create_fields(self.dialect, table, cols, *data)
+    async def bulk_create(self, fields: Sequence[Field], *data: Sequence[Any]) -> None:
+        table, rows = self._bulk_create_fields(self.dialect, fields, *data)
         query = AsyncInsertQuery(self.dialect, table, *rows, fields=fields)
         cursor = await maybe_await(self.conn.cursor())
         await query.execute(cursor)
