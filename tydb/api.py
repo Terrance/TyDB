@@ -19,6 +19,7 @@ class Cursor(Protocol):
 
 
 class Connection(Protocol):
+    def close(self) -> None: ...
     def cursor(self) -> Cursor: ...
 
 
@@ -30,4 +31,5 @@ class AsyncCursor(Protocol):
 
 
 class AsyncConnection(Protocol):
+    def close(self) -> _MaybeAsync[None]: ...
     def cursor(self) -> _MaybeAsync[AsyncCursor]: ...
