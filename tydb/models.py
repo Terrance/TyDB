@@ -197,49 +197,70 @@ class Table:
 
 class _Term:
 
-    def __and__(self, other: Any):
-        return Expr(operator.and_, self, other)
-
-    def __or__(self, other: Any):
-        return Expr(operator.or_, self, other)
-    
-    def __invert__(self):
-        return Expr(operator.invert, self)
-
     def __eq__(self, other: Any):
+        """
+        Make a `this = other` clause (or `this IS NULL` if comparing with `None`).
+        """
         if other is None:
             return Expr(pypika.terms.Term.isnull, self)
         else:
             return Expr(operator.eq, self, other)
 
     def __ne__(self, other: Any):
+        """
+        Make a `this <> other` clause (or `this IS NOT NULL` if comparing with `None`).
+        """
         if other is None:
             return Expr(pypika.terms.Term.isnotnull, self)
         else:
             return Expr(operator.ne, self, other)
 
     def __lt__(self, other: Any):
+        """
+        Make a `this < other` clause.
+        """
         return Expr(operator.lt, self, other)
 
     def __le__(self, other: Any):
+        """
+        Make a `this <= other` clause.
+        """
         return Expr(operator.le, self, other)
 
     def __gt__(self, other: Any):
+        """
+        Make a `this > other` clause.
+        """
         return Expr(operator.gt, self, other)
 
     def __ge__(self, other: Any):
+        """
+        Make a `this >= other` clause.
+        """
         return Expr(operator.ge, self, other)
     
     def __neg__(self):
+        """
+        Make a `-this` clause.
+        """
         return Expr(operator.neg, self)
 
     def __matmul__(self, other: Any):
+        """
+        Make a `this IN other` clause.
+        """
         return Expr(pypika.terms.Term.isin, self, other)
 
     def __mul__(self, other: Any):
+        """
+        Make a `this LIKE other` clause.
+        """
         return Expr(pypika.terms.Term.like, self, other)
 
     def __pow__(self, other: Any):
+        """
+        Make a `this ILIKE other` clause.
+        """
         return Expr(pypika.terms.Term.ilike, self, other)
 
 
@@ -334,6 +355,24 @@ class Expr(_Term):
     def pk_frag(self):
         args = (self._encode(arg) for arg in self.args)
         return self.op(*args)
+
+    def __and__(self, other: Any):
+        """
+        Make a `this AND other` clause.
+        """
+        return Expr(operator.and_, self, other)
+
+    def __or__(self, other: Any):
+        """
+        Make a `this OR other` clause.
+        """
+        return Expr(operator.or_, self, other)
+    
+    def __invert__(self):
+        """
+        Make a `NOT this` clause.
+        """
+        return Expr(operator.invert, self)
 
     def __repr__(self):
         return "<{}: {} ({})>".format(
