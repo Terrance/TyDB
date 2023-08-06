@@ -330,20 +330,31 @@ class Expr(_Term):
 
     def __init__(self, op, *args):
         self.op = op
-        fields = [arg for arg in args if isinstance(arg, Field)]
+        fields: List[Field[Any]] = []
+        for arg in args:
+            if isinstance(arg, Field):
+                fields.append(arg)
+            elif isinstance(arg, Reference):
+                fields.append(arg.field)
         if len(fields) == 1:
             field = fields[0]
-            values = []
-            for arg in args:
-                if isinstance(arg, (Field, pypika.terms.Term, str)):
-                    values.append(arg)
-                elif isinstance(arg, Iterable):
-                    values.append(tuple(field.encode(item) for item in arg))
-                else:
-                    values.append(field.encode(arg))
-            self.args = values
+            self.args = [self._decode(arg, field) for arg in args]
         else:
             self.args = args
+
+    @classmethod
+    def _decode(cls, obj: Any, field: Field[Any]):
+        if isinstance(obj, Table):
+            assert field.foreign and isinstance(obj, field.foreign.owner)
+            return getattr(obj, field.foreign.name)
+        elif isinstance(obj, Reference):
+            return obj.field
+        elif isinstance(obj, (Field, pypika.terms.Term, str)):
+            return obj
+        elif isinstance(obj, Iterable):
+            return tuple(cls._decode(item, field) for item in obj)
+        else:
+            return field.encode(obj)
 
     @staticmethod
     def _encode(obj: Any):
@@ -383,7 +394,7 @@ class Expr(_Term):
         )
 
 
-class Reference(_Descriptor[Table], Generic[_TTable]):
+class Reference(_Descriptor[Table], Generic[_TTable], _Term):
     """
     Representation of a foreign key.
     """
