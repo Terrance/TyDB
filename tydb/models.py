@@ -139,6 +139,9 @@ class _Descriptor(Generic[_TAny]):
             raise RuntimeError("{} can't be assigned twice".format(self.__class__.__name__))
         self.owner = owner
         self.name = name
+    
+    def __hash__(self):
+        return hash((self.owner, self.name))
 
     @property
     def id(self) -> Optional[str]:
