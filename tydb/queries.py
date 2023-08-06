@@ -218,14 +218,14 @@ class _SelectQueryResult(_CommonQueryResult[_TTable]):
 
 
 class SelectQueryResult(_SelectQueryResult[_TTable], _QueryResult[_TTable]):
-    
+
     def __init__(self, cursor: Cursor, table: Type[_TTable], joins: List[_RefJoinSpec]):
         _QueryResult.__init__(self, cursor)
         _SelectQueryResult.__init__(self, table, joins)
 
 
 class AsyncSelectQueryResult(_SelectQueryResult[_TTable], _AsyncQueryResult[_TTable]):
-    
+
     def __init__(self, cursor: AsyncCursor, table: Type[_TTable], joins: List[_RefJoinSpec]):
         _AsyncQueryResult.__init__(self, cursor)
         _SelectQueryResult.__init__(self, table, joins)
@@ -243,7 +243,7 @@ class _Query(Generic[_TTable]):
     def execute(self, cursor: Cursor) -> None: ...
     @overload
     def execute(self, cursor: AsyncCursor) -> Awaitable[None]: ...
-    
+
     def execute(self, cursor: Union[Cursor, AsyncCursor]):
         """
         Perform the query against the database associated with the provided cursor.
@@ -256,7 +256,7 @@ class _Query(Generic[_TTable]):
 
 
 class _AsyncQuery(_Query[_TTable]):
-    
+
     async def execute(self, cursor: Union[Cursor, AsyncCursor]):
         try:
             return await maybe_await(super().execute(cursor))

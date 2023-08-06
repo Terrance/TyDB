@@ -138,7 +138,7 @@ class _Session(Generic[_TConnection]):
         Perform a `SELECT ... LIMIT 1` query for a referenced object.
         """
         raise NotImplementedError
-    
+
     def _create_value(self, field: Field, value: Any, dialect: Type[Dialect]):
         if value is None:
             if Nullable.is_nullable(type(field)):
@@ -206,7 +206,7 @@ class _Session(Generic[_TConnection]):
         Perform a bulk `INSERT` query to add multiple records to the given table.
 
         Accepts a CSV-style input of sequences, where the first sequence holds the field names and
-        the each subsequent one has the values for a single record. 
+        the each subsequent one has the values for a single record.
 
         ```python
         sess.bulk_create(

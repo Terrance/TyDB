@@ -142,5 +142,5 @@ class Nullable:
             return super().__get__(obj, objtype)
 
     class BoundReference(_Nullable, BoundReference[_TTable]):
-        
+
         value: Optional[_TTable]

@@ -238,7 +238,7 @@ class _Term:
         Make a `this >= other` clause.
         """
         return Expr(operator.ge, self, other)
-    
+
     def __neg__(self):
         """
         Make a `-this` clause.
@@ -341,7 +341,7 @@ class Expr(_Term):
             self.args = values
         else:
             self.args = args
-    
+
     @staticmethod
     def _encode(obj: Any):
         if isinstance(obj, Expr):
@@ -350,7 +350,7 @@ class Expr(_Term):
             return obj.pk_field
         else:
             return obj
-    
+
     @property
     def pk_frag(self):
         args = (self._encode(arg) for arg in self.args)
@@ -367,7 +367,7 @@ class Expr(_Term):
         Make a `this OR other` clause.
         """
         return Expr(operator.or_, self, other)
-    
+
     def __invert__(self):
         """
         Make a `NOT this` clause.
