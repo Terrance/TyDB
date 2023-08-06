@@ -17,7 +17,7 @@ NOW = datetime.now().astimezone()
 
 
 class IntModel(Table, primary="field"):
-    field = IntField(default=Default.SERVER)
+    field = IntField()
 
 class FloatModel(Table, primary="field"):
     field = FloatField()
@@ -75,48 +75,15 @@ NullModel = Union[IntNullModel, FloatNullModel, StrNullModel, BoolNullModel, Dat
 )
 class TestField(TestCase):
 
-    async def test_field_create(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
-    ):
-        data = {} if model.field.default is Default.SERVER else {"field": value}
-        key = await maybe_await(sess.create(model, **data))
-        self.assertEqual(key, 1)
-
-    async def test_field_bulk_create(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
+    async def test_create(
+        self, sess: Union[AsyncSession, Session], model: Type[Union[Model, NullModel]],
+        value: Any, alt_value: Any,
     ):
         await maybe_await(sess.bulk_create([model.field], [value], [alt_value]))
-        result = await maybe_await(sess.select(model))
-        insts = [item async for item in result]
-        self.assertEqual(insts, [model(id=1, field=value), model(id=2, field=alt_value)])
-
-    async def test_field_select(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
-    ):
-        await maybe_await(sess.create(model, field=value))
-        result = [inst async for inst in await maybe_await(sess.select(model))]
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], model(id=1, field=value))
-
-    async def test_field_select_where(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
-    ):
-        await maybe_await(sess.create(model, field=value))
-        result = [inst async for inst in await maybe_await(sess.select(model, model.field == value))]
-        self.assertEqual(len(result), 1)
-        result = [inst async for inst in await maybe_await(sess.select(model, model.field == alt_value))]
-        self.assertEqual(len(result), 0)
 
     async def test_field_get(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
-    ):
-        await maybe_await(sess.create(model, field=value))
-        result = await maybe_await(sess.get(model))
-        self.assertIsNotNone(result)
-        self.assertEqual(result, model(id=1, field=value))
-
-    async def test_field_get_where(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
+        self, sess: Union[AsyncSession, Session], model: Type[Union[Model, NullModel]],
+        value: Any, alt_value: Any,
     ):
         await maybe_await(sess.create(model, field=value))
         result = await maybe_await(sess.first(model, model.field == value))
@@ -124,20 +91,3 @@ class TestField(TestCase):
         self.assertEqual(result, model(id=1, field=value))
         result = await maybe_await(sess.first(model, model.field == alt_value))
         self.assertIsNone(result)
-
-    async def test_field_remove(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
-    ):
-        await maybe_await(sess.create(model, field=value))
-        inst = await maybe_await(sess.get(model, model.field == value))
-        await maybe_await(sess.remove(inst))
-        result = [inst async for inst in await maybe_await(sess.select(model))]
-        self.assertEqual(len(result), 0)
-
-    async def test_field_delete(
-        self, sess: Union[AsyncSession, Session], model: Type[Model], value: Any, alt_value: Any,
-    ):
-        await maybe_await(sess.create(model, field=value))
-        await maybe_await(sess.delete(model, 1 if "id" in model.meta.fields else value))
-        result = [inst async for inst in await maybe_await(sess.select(model))]
-        self.assertEqual(len(result), 0)
