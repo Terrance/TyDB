@@ -110,18 +110,6 @@ class _QueryResult(_CommonQueryResult[_TAny]):
         except StopIteration:
             raise StopAsyncIteration
 
-    def __len__(self):
-        if not self.done:
-            if self.iterating:
-                raise RuntimeError("Result still being iterated")
-            # Force complete iteration whilst idle.
-            try:
-                while True:
-                    self.__next__()
-            except StopIteration:
-                pass
-        return len(self.buffer)
-
 
 class _AsyncQueryResult(_CommonQueryResult[_TAny]):
 
@@ -139,11 +127,6 @@ class _AsyncQueryResult(_CommonQueryResult[_TAny]):
             return self._next_after(row)
         except StopIteration:
             raise StopAsyncIteration
-
-    def __len__(self):
-        if not self.done:
-            raise RuntimeError("Result not iterated yet")
-        return len(self.buffer)
 
 
 class _RawQueryResult(_CommonQueryResult[Tuple[Any, ...]]):
