@@ -6,7 +6,7 @@ from copy import copy
 from datetime import datetime
 from enum import Enum, auto
 import operator
-from typing import Any, Dict, Generic, List, Optional, Sequence, Tuple, Type, TypeVar, Union, overload
+from typing import Any, Dict, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union, overload
 
 import pypika
 import pypika.terms
@@ -334,7 +334,7 @@ class Expr(_Term):
             for arg in args:
                 if isinstance(arg, (Field, pypika.terms.Term, str)):
                     values.append(arg)
-                elif isinstance(arg, Sequence):
+                elif isinstance(arg, Iterable):
                     values.append(tuple(field.encode(item) for item in arg))
                 else:
                     values.append(field.encode(arg))
