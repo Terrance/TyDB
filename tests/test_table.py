@@ -3,14 +3,20 @@ from unittest import TestCase
 
 import pypika as pk
 
-from tydb.models import Default, Field, Reference, Table
+from tydb.models import Field, Reference, Table
 from tydb.utils import resolve_late_descriptors
 
 
 class TestTable(TestCase):
 
     def test_name(self):
-        for name, canonical in (("lower", "lower"), ("Title", "title"), ("TwoWords", "two_words")):
+        cases = (
+            ("lower", "lower"),
+            ("Title", "title"),
+            ("TwoWords", "two_words"),
+            ("AnACRONYMName", "an_acronym_name"),
+        )
+        for name, canonical in cases:
             with self.subTest(name=name, canonical=canonical):  
                 Model: Type[Table] = type(name, (Table,), {})
                 self.assertEqual(Model.meta.name, canonical)

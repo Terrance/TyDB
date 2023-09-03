@@ -24,7 +24,10 @@ def snake_case(value: str) -> str:
     """
     Convert a CamelCase name into snake_case.
     """
-    return "".join("_" + char.lower() if char.isupper() else char for char in value).lstrip("_")
+    return "".join(
+        "_" + char if char.isupper() and before and after and (not before.isupper() or not after.isupper()) else char
+        for before, char, after in zip((None, *value[:-1]), value, (*value[1:], None))
+    ).lstrip("_").lower()
 
 
 class Default(Enum):
