@@ -1,6 +1,7 @@
 module = tydb
 
 unittest_args = -m unittest discover -s tests/
+coverage_args = --omit tests/utils.py
 
 
 test:
@@ -8,7 +9,7 @@ test:
 
 coverage:
 	coverage erase
-	coverage run $(unittest_args)
+	coverage run $(coverage_args) $(unittest_args)
 	coverage html
 
 docs:
