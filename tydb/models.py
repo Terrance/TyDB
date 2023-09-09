@@ -142,7 +142,7 @@ class _Descriptor(Generic[_TAny]):
             raise RuntimeError("{} can't be assigned twice".format(self.__class__.__name__))
         self.owner = owner
         self.name = name
-    
+
     def __hash__(self):
         return hash((self.owner, self.name))
 
@@ -292,7 +292,7 @@ class Field(_Descriptor[Table], Generic[_TAny], _Term):
     @overload
     def __get__(self, obj: Table, objtype: Any = ...) -> _TAny: ...
     @overload
-    def __get__(self, obj: None, objtype: Any = ...) -> "Field[_TAny]": ...
+    def __get__(self, obj: None, objtype: Any = ...) -> Self: ...
 
     def __get__(self, obj: Optional[Table], objtype: Optional[Type[Table]] = None):
         if not obj:
