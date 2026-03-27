@@ -12,6 +12,9 @@ _MaybeAsync = Union[_T, Awaitable[_T]]
 
 
 class Cursor(Protocol):
+    """
+    DB-API `Cursor` object.
+    """
     def close(self) -> None: ...
     def execute(self, operation: Any, parameters: Iterable[Any] = ...) -> Any: ...
     def fetchone(self) -> Optional[Tuple[Any, ...]]: ...
@@ -19,11 +22,17 @@ class Cursor(Protocol):
 
 
 class Connection(Protocol):
+    """
+    DB-API `Connection` object.
+    """
     def close(self) -> None: ...
     def cursor(self) -> Cursor: ...
 
 
 class AsyncCursor(Protocol):
+    """
+    DB-API `Cursor` object, supporting possible coroutines.
+    """
     def close(self) -> _MaybeAsync[None]: ...
     def execute(self, operation: Any, parameters: Iterable[Any] = ...) -> _MaybeAsync[Any]: ...
     def fetchone(self) -> _MaybeAsync[Optional[Tuple[Any, ...]]]: ...
@@ -31,5 +40,8 @@ class AsyncCursor(Protocol):
 
 
 class AsyncConnection(Protocol):
+    """
+    DB-API `Connection` object, supporting possible coroutines.
+    """
     def close(self) -> _MaybeAsync[None]: ...
     def cursor(self) -> _MaybeAsync[AsyncCursor]: ...
