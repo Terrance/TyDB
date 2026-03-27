@@ -131,7 +131,7 @@ def dialect_methods(
 
 def with_dialects(*tables: Type[Table]):
     def outer(cls: Type[TestCase]):
-        loop = asyncio.get_event_loop()
+        loop = asyncio.new_event_loop()
         setup: Set[Type[Table]] = set(tables)
         functions: Dict[str, Tuple[TestMethod, ...]] = {}
         sessions: Dict[str, AnySession] = {}
