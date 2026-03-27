@@ -1,0 +1,32 @@
+[project]
+name = "TyDB"
+description = "A simple, type-friendly ORM."
+readme = "README.md"
+license = "BSD-3-Clause"
+classifiers=[
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Database :: Front-Ends",
+  "Topic :: Software Development :: Libraries",
+  "Typing :: Typed",
+]
+version = "0.0.0"
+requires-python = ">=3.7"
+dependencies = [
+  "pypika",
+  "typing_extensions>=4.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  # Docs
+  "pdoc",
+  # Tests
+  "aiomysql",
+  "aiopg",
+  "aiosqlite",
+  "psycopg",
+  "pymysql",
+  # Test coverage
+  "coverage",
+]
