@@ -24,7 +24,23 @@ Low-level interaction with databases is handled by a [DB-API `Connection`](https
 
 Whilst there's no asynchronous DB-API specification, some database drivers implement a DB-API-like interface with the same methods presented as coroutines; these are supported with asynchronous sessions, which will attempt to await results of `Connection` method calls if they return awaitables.
 
-## Unit tests
+## Local development
+
+To install the library from a code checkout, including development dependencies:
+
+```shell
+$ pip install -e '.[dev]'
+```
+
+### Docs
+
+These can be built using [pdoc](https://pdoc.dev), assuming you've installed the dev requirements already:
+
+```shell
+$ make docs
+```
+
+### Unit tests
 
 The included tests can be ran using:
 
@@ -34,13 +50,7 @@ $ make test
 
 By default, this will just run generic tests, and SQLite tests against an in-memory database.
 
-To run against MySQL or PostgreSQL, you'll need to install the database drivers used by the tests:
-
-```shell
-$ pip install -r requirements-dev.txt
-```
-
-Credentials must also be provided to connect to live database servers.  These should be JSON-formatted strings containing `kwargs` for the underlying driver connection methods.  For example, to connect to servers listening locally without authentication:
+To run against MySQL or PostgreSQL, you'll need the corresponding database drivers installed from the dev dependencies.  Credentials must also be provided to connect to live database servers.  These should be JSON-formatted strings containing `kwargs` for the underlying driver connection methods.  For example, to connect to servers listening locally without authentication:
 
 ```shell
 $ export TYDB_MYSQL_CONN='{"db": "tydb"}'
@@ -64,11 +74,3 @@ The dialect-aware tests currently use the following databases and drivers:
 * SQLite
   * [`sqlite3`](https://docs.python.org/3/library/sqlite3.html) (built-in)
   * [`aiosqlite`](https://pypi.org/project/aiosqlite/)
-
-## Docs
-
-These can be built using [pdoc](https://pdoc.dev), assuming you've installed the dev requirements already:
-
-```shell
-$ make docs
-```

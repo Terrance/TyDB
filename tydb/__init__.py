@@ -46,7 +46,7 @@ async def main():
 
     await sess.create(Item, name="Test")  # Item(id=1, name='Test')
     async for item in await sess.select(Item, Item.name == "Test"):  # <AsyncSelectQueryResult: ...>
-        await  sess.remove(item)
+        await sess.remove(item)
 ```
 
 ## Expressions
