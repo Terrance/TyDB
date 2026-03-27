@@ -84,10 +84,12 @@ class TestTable(TestCase):
         class Other(Table):
             key = Field()
             alt_key = Field(foreign=key)
-        with self.assertRaises(RuntimeError) as ctx:
+        with self.assertRaises((RuntimeError, TypeError)) as ctx:
             class _(Table):
                 other = Reference(Other.alt_key, Other)
-        cause = ctx.exception.__cause__
+        cause = ctx.exception
+        if isinstance(cause, RuntimeError):
+            cause = cause.__cause__
         self.assertIsInstance(cause, TypeError)
         self.assertEqual(cause.args[0], "Reference field Other.alt_key on foreign table Other")
 
